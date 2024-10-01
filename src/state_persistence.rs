@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-use dusa_collection_utils::stringy::Stringy;
+use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 use dusa_collection_utils::types::PathType;
 
 use crate::{config::AppConfig, encryption::{decrypt_text, encrypt_text}};
@@ -20,7 +20,7 @@ pub struct AppState {
     pub is_active: bool,
 
     // List of errors that have occurred during runtime
-    pub error_log: Vec<String>,
+    pub error_log: Vec<ErrorArrayItem>,
 
     // Configuration settings for the application
     pub config: AppConfig,

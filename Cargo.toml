@@ -16,7 +16,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [dependencies]
-dusa_collection_utils = "2.6.3"
+dusa_collection_utils = "2.6.4"
 
 # Asynchronous runtime
 tokio = { version = "1", features = ["full"] }

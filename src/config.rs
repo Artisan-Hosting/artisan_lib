@@ -1,7 +1,4 @@
 // src/config.rs
-
-use dusa_collection_utils::types::PathType;
-use nix::NixPath;
 use serde::{Deserialize, Serialize};
 use config::{Config, ConfigError, Environment, File};
 use std::env;

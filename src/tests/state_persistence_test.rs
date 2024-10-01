@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{AppConfig, GitConfig};
-    use crate::git_actions::{GitAuth, ARTISANCF, GitServer};
+    use crate::git_actions::{ARTISANCF, GitServer};
     use crate::state_persistence::{AppState, StatePersistence};
     use std::fs;
     use std::path::PathBuf;

@@ -1,36 +1,46 @@
 #[cfg(test)]
 mod tests {
     use crate::process_manager::ProcessManager;
-    use libc::{c_int, SIGSTOP, SIGCONT};
-    use std::time::{Duration, Instant};
+    use libc::{c_int, SIGCONT, SIGSTOP};
     use std::thread;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_spawn_process() {
         // Spawn a "yes" process that runs indefinitely
-        let process = ProcessManager::spawn_process("yes", &["test"], false).expect("Failed to spawn process");
-        
+        let process = ProcessManager::spawn_process("yes", &["test"], false)
+            .expect("Failed to spawn process");
+
         // Assert that the process is running
         let pid = process.id() as c_int;
-        assert!(ProcessManager::is_process_running(pid), "Process should be running");
-        
+        assert!(
+            ProcessManager::is_process_running(pid),
+            "Process should be running"
+        );
+
         // Kill the process after the test
         // ProcessManager::kill_process(pid).expect("Failed to kill process");
         ProcessManager::force_kill_process(pid).expect("Failed to kill");
 
         // Wait for a short period to ensure the process is killed
         let start_time = Instant::now();
-        while ProcessManager::is_process_running(pid) && start_time.elapsed() < Duration::from_secs(5) {
+        while ProcessManager::is_process_running(pid)
+            && start_time.elapsed() < Duration::from_secs(5)
+        {
             thread::sleep(Duration::from_millis(100));
         }
 
-        assert!(!ProcessManager::is_process_running(pid), "Process should not be running");
+        assert!(
+            !ProcessManager::is_process_running(pid),
+            "Process should not be running"
+        );
     }
 
     #[test]
     fn test_kill_process() {
         // Spawn a "yes" process
-        let process = ProcessManager::spawn_process("yes", &["test"], false).expect("Failed to spawn process");
+        let process = ProcessManager::spawn_process("yes", &["test"], false)
+            .expect("Failed to spawn process");
         let pid = process.id() as c_int;
 
         // Kill the process
@@ -38,25 +48,35 @@ mod tests {
 
         // Wait for the process to be killed
         let start_time = Instant::now();
-        while ProcessManager::is_process_running(pid) && start_time.elapsed() < Duration::from_secs(5) {
+        while ProcessManager::is_process_running(pid)
+            && start_time.elapsed() < Duration::from_secs(5)
+        {
             thread::sleep(Duration::from_millis(100));
         }
 
-        assert!(!ProcessManager::is_process_running(pid), "Process should not be running");
+        assert!(
+            !ProcessManager::is_process_running(pid),
+            "Process should not be running"
+        );
     }
 
     #[test]
     fn test_restart_process() {
         // Spawn a "yes" process
-        let process = ProcessManager::spawn_process("yes", &["test"], false).expect("Failed to spawn process");
+        let process = ProcessManager::spawn_process("yes", &["test"], false)
+            .expect("Failed to spawn process");
         let pid = process.id() as c_int;
 
         // Restart the process
-        let new_process = ProcessManager::restart_process(pid, "yes", &["test"]).expect("Failed to restart process");
+        let new_process = ProcessManager::restart_process(pid, "yes", &["test"])
+            .expect("Failed to restart process");
 
         // Assert that the new process is running and has a different PID
         let new_pid = new_process.id() as c_int;
-        assert!(ProcessManager::is_process_running(new_pid), "New process should be running");
+        assert!(
+            ProcessManager::is_process_running(new_pid),
+            "New process should be running"
+        );
         assert_ne!(pid, new_pid, "PID should be different after restart");
 
         // Kill the new process after the test
@@ -66,7 +86,8 @@ mod tests {
     #[test]
     fn test_send_signal() {
         // Spawn a "yes" process
-        let process = ProcessManager::spawn_process("yes", &["test"], false).expect("Failed to spawn process");
+        let process = ProcessManager::spawn_process("yes", &["test"], false)
+            .expect("Failed to spawn process");
         let pid = process.id() as c_int;
 
         // Send SIGSTOP to the process
@@ -84,7 +105,10 @@ mod tests {
 
         // Assert that the process is running
         thread::sleep(Duration::from_millis(500));
-        assert!(ProcessManager::is_process_running(pid), "Process should be running");
+        assert!(
+            ProcessManager::is_process_running(pid),
+            "Process should be running"
+        );
 
         // Kill the process after the test
         ProcessManager::kill_process(pid).expect("Failed to kill process");
@@ -93,7 +117,8 @@ mod tests {
     #[test]
     fn test_stop_process() {
         // Spawn a "yes" process that runs indefinitely
-        let process = ProcessManager::spawn_process("yes", &["test"], false).expect("Failed to spawn process");
+        let process = ProcessManager::spawn_process("yes", &["test"], false)
+            .expect("Failed to spawn process");
         let pid = process.id() as c_int;
 
         // Stop the process gracefully
@@ -101,10 +126,15 @@ mod tests {
 
         // Wait for a short period to ensure the process is killed
         let start_time = Instant::now();
-        while ProcessManager::is_process_running(pid) && start_time.elapsed() < Duration::from_secs(5) {
+        while ProcessManager::is_process_running(pid)
+            && start_time.elapsed() < Duration::from_secs(5)
+        {
             thread::sleep(Duration::from_millis(100));
         }
 
-        assert!(!ProcessManager::is_process_running(pid), "Process should not be running");
+        assert!(
+            !ProcessManager::is_process_running(pid),
+            "Process should not be running"
+        );
     }
 }

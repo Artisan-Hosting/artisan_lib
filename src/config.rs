@@ -1,6 +1,6 @@
 // src/config.rs
-use serde::{Deserialize, Serialize};
 use config::{Config, ConfigError, Environment, File};
+use serde::{Deserialize, Serialize};
 use std::env;
 
 use crate::git_actions::GitServer;
@@ -28,7 +28,6 @@ pub struct AppConfig {
 
     /// Configuration related to the database (optional example).
     pub database: Option<DatabaseConfig>,
-
     // Add other configuration sections as needed.
 }
 
@@ -40,7 +39,6 @@ pub struct GitConfig {
 
     /// Path to the file containing Git credentials.
     pub credentials_file: String,
-
     // /// Optional SSH key path for Git operations.
     // pub ssh_key_path: Option<String>,
 }
@@ -88,9 +86,8 @@ impl AppConfig {
         let builder = builder.add_source(File::with_name("Settings").required(false));
 
         // Load environment-specific configuration files (e.g., Settings.development.toml).
-        let builder = builder.add_source(
-            File::with_name(&format!("Settings.{}", run_mode)).required(false),
-        );
+        let builder =
+            builder.add_source(File::with_name(&format!("Settings.{}", run_mode)).required(false));
 
         // Add in settings from the environment (with a prefix of APP).
         // E.g., `APP_DEBUG_MODE=1` would set the `debug_mode` configuration.
@@ -116,7 +113,11 @@ impl AppConfig {
         if self.max_connections == 0 {
             return Err("max_connections must be greater than 0".into());
         }
-        if <std::option::Option<GitConfig> as Clone>::clone(&self.git).unwrap().credentials_file.is_empty() {
+        if <std::option::Option<GitConfig> as Clone>::clone(&self.git)
+            .unwrap()
+            .credentials_file
+            .is_empty()
+        {
             return Err("git.credentials_file must be provided".into());
         }
         if self.app_name.is_empty() {

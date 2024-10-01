@@ -1,6 +1,9 @@
 // resource_monitor.rs
 
-use std::{fs::File, io::{self, Read}};
+use std::{
+    fs::File,
+    io::{self, Read},
+};
 
 use procfs::process::Process;
 
@@ -15,7 +18,9 @@ impl ResourceMonitor {
         Ok((cpu_usage, memory))
     }
 
-    pub fn calculate_cpu_usage(stat: &procfs::process::Stat) -> Result<f32, Box<dyn std::error::Error>> {
+    pub fn calculate_cpu_usage(
+        stat: &procfs::process::Stat,
+    ) -> Result<f32, Box<dyn std::error::Error>> {
         // Get the relevant fields from the stat
         let utime = stat.utime; // User mode time
         let stime = stat.stime; // Kernel mode time

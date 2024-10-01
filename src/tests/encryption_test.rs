@@ -2,7 +2,10 @@
 
 #[cfg(test)]
 mod tests {
-    use dusa_collection_utils::{errors::{ErrorArray, ErrorArrayItem, UnifiedResult as uf}, stringy::Stringy};
+    use dusa_collection_utils::{
+        errors::{ErrorArray, ErrorArrayItem, UnifiedResult as uf},
+        stringy::Stringy,
+    };
 
     use crate::encryption::ProgramMode;
 
@@ -22,7 +25,10 @@ mod tests {
             }
             ProgramMode::DecryptText => {
                 // Simulate successful decryption
-                let decrypted = data.unwrap_or_default().replace("encrypted(", "").replace(")", "");
+                let decrypted = data
+                    .unwrap_or_default()
+                    .replace("encrypted(", "")
+                    .replace(")", "");
                 uf::new(Ok(Some(decrypted)))
             }
             _ => uf::new(Err(ErrorArray::new_container())),

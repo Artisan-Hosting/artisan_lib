@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{AppConfig, GitConfig};
-    use crate::git_actions::{ARTISANCF, GitServer};
+    use crate::git_actions::{GitServer, ARTISANCF};
     use crate::state_persistence::{AppState, StatePersistence};
+    use dusa_collection_utils::types::PathType;
     use std::fs;
     use std::path::PathBuf;
-    use dusa_collection_utils::types::PathType;
     use tempfile::tempdir; // Add `tempfile` to your Cargo.toml for a temporary directory.
 
     #[test]
@@ -17,7 +17,7 @@ mod tests {
             max_connections: 22,
             environment: "PORT=3306".to_owned(),
             debug_mode: false,
-            git: Some(GitConfig{
+            git: Some(GitConfig {
                 default_server: GitServer::GitHub,
                 credentials_file: PathType::Str(ARTISANCF.into()).to_string(),
             }),
@@ -39,15 +39,26 @@ mod tests {
 
         // Save the state
         let save_result = StatePersistence::save_state(&state, &path);
-        assert!(save_result.is_ok(), "Failed to save state: {:?}", save_result);
+        assert!(
+            save_result.is_ok(),
+            "Failed to save state: {:?}",
+            save_result
+        );
 
         // Load the state
         let load_result = StatePersistence::load_state(&path);
-        assert!(load_result.is_ok(), "Failed to load state: {:?}", load_result);
+        assert!(
+            load_result.is_ok(),
+            "Failed to load state: {:?}",
+            load_result
+        );
 
         // Verify the loaded state matches the original state
         let loaded_state = load_result.unwrap();
-        assert_eq!(state, loaded_state, "Loaded state does not match the original state");
+        assert_eq!(
+            state, loaded_state,
+            "Loaded state does not match the original state"
+        );
     }
 
     #[test]
@@ -55,7 +66,10 @@ mod tests {
         // Try loading from a non-existent file
         let path: PathType = PathBuf::from("non_existent_file.toml").into();
         let load_result = StatePersistence::load_state(&path);
-        assert!(load_result.is_err(), "Loading non-existent file should fail");
+        assert!(
+            load_result.is_err(),
+            "Loading non-existent file should fail"
+        );
     }
 
     #[test]

@@ -42,7 +42,8 @@ mod tests {
                 ));
             }
 
-            let plain_email_data: Stringy = Stringy::from_string(format!("{}-=-{}", email.subject, email.body));
+            let plain_email_data: Stringy =
+                Stringy::from_string(format!("{}-=-{}", email.subject, email.body));
             let encrypted_data: Stringy = mock_encrypt_text(plain_email_data)?;
 
             Ok(EmailSecure {
@@ -54,7 +55,8 @@ mod tests {
             let mut stream = MockTcpStream::connect("45.137.192.70:1827")
                 .map_err(|e| ErrorArrayItem::from(e))?;
 
-            stream.write_all(self.data.as_bytes())
+            stream
+                .write_all(self.data.as_bytes())
                 .map_err(|e| ErrorArrayItem::from(e))
         }
     }
@@ -134,7 +136,10 @@ mod tests {
 
         impl FailingTcpStream {
             fn connect(_address: &str) -> io::Result<Self> {
-                Err(io::Error::new(io::ErrorKind::ConnectionRefused, "Connection refused"))
+                Err(io::Error::new(
+                    io::ErrorKind::ConnectionRefused,
+                    "Connection refused",
+                ))
             }
         }
 

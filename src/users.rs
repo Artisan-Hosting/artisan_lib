@@ -1,6 +1,9 @@
 use std::{fs, os::unix::fs::PermissionsExt};
 
-use dusa_collection_utils::{errors::{ErrorArrayItem, Errors}, types::PathType};
+use dusa_collection_utils::{
+    errors::{ErrorArrayItem, Errors},
+    types::PathType,
+};
 use nix::unistd::{chown, Gid, Uid};
 use users::{Groups, Users, UsersCache};
 use walkdir::WalkDir;

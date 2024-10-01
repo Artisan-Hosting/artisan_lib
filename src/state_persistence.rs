@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 use dusa_collection_utils::types::PathType;
+use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 
-use crate::{config::AppConfig, encryption::{decrypt_text, encrypt_text}};
+use crate::{
+    config::AppConfig,
+    encryption::{decrypt_text, encrypt_text},
+};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AppState {
@@ -48,8 +51,9 @@ impl StatePersistence {
             )));
         }
 
-        let content: Stringy = decrypt_text(encrypted_content)
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed"))?;
+        let content: Stringy = decrypt_text(encrypted_content).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
+        })?;
         let state: AppState = toml::from_str(&content)?;
         Ok(state)
     }

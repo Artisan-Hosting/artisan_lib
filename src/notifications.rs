@@ -1,9 +1,11 @@
-use dusa_collection_utils::{errors::{ErrorArrayItem, Errors}, stringy::Stringy};
+use dusa_collection_utils::{
+    errors::{ErrorArrayItem, Errors},
+    stringy::Stringy,
+};
 use serde::{Deserialize, Serialize};
 use std::{fmt, io::Write, net::TcpStream};
 
 use crate::encryption::encrypt_text;
-
 
 /// Represents an email message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,7 +48,7 @@ impl Email {
     }
 }
 
-impl EmailSecure {    
+impl EmailSecure {
     /// Creates a new EmailSecure instance by encrypting the provided email.
     pub fn new(email: Email) -> Result<Self, ErrorArrayItem> {
         if !email.is_valid() {
@@ -56,7 +58,8 @@ impl EmailSecure {
             ));
         }
 
-        let plain_email_data: Stringy = Stringy::from_string(format!("{}-=-{}", email.subject, email.body));
+        let plain_email_data: Stringy =
+            Stringy::from_string(format!("{}-=-{}", email.subject, email.body));
         let encrypted_data: Stringy = encrypt_text(plain_email_data)?;
 
         Ok(EmailSecure {

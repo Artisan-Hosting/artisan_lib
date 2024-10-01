@@ -8,6 +8,8 @@ authors = [
 ]
 description = "The main services of the artisan platform to allow communication and management of linux system services"
 homepage = "https://docs.artisanhosting.net"
+license = "MIT OR Apache-2.0"
+
 
 [dev-dependencies]
 tempfile = "3.5"

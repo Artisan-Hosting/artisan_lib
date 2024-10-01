@@ -169,9 +169,6 @@ impl GitCredentials {
             ErrorArrayItem::new(Errors::GeneralError, format!("Encryption error: {:?}", e))
         })?;
 
-        // Print encrypted data for debugging
-        println!("Encrypted Data: {}", encrypted_data);
-
         // Write the encrypted data to the file
         let mut file = OpenOptions::new()
             .write(true)

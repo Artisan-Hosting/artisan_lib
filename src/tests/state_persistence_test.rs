@@ -19,7 +19,7 @@ mod tests {
             debug_mode: false,
             git: Some(GitConfig{
                 default_server: GitServer::GitHub,
-                credentials_file: PathType::Str(ARTISANCF.into()),
+                credentials_file: PathType::Str(ARTISANCF.into()).to_string(),
             }),
             database: None,
         };

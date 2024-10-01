@@ -42,7 +42,7 @@ pub struct GitConfig {
     pub default_server: GitServer,
 
     /// Path to the file containing Git credentials.
-    pub credentials_file: PathType,
+    pub credentials_file: String,
 
     // /// Optional SSH key path for Git operations.
     // pub ssh_key_path: Option<String>,

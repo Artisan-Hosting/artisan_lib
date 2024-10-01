@@ -114,8 +114,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "artisan_platform"
-version = "1.2.0"
+name = "artisan_middleware"
+version = "1.2.1"
 dependencies = [
  "config",
  "dusa",

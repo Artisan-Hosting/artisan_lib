@@ -17,10 +17,10 @@ mod tests {
             max_connections: 22,
             environment: "PORT=3306".to_owned(),
             debug_mode: false,
-            git: GitConfig{
+            git: Some(GitConfig{
                 default_server: GitServer::GitHub,
                 credentials_file: PathType::Str(ARTISANCF.into()),
-            },
+            }),
             database: None,
         };
 

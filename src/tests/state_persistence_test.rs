@@ -22,6 +22,7 @@ mod tests {
                 credentials_file: PathType::Str(ARTISANCF.into()).to_string(),
             }),
             database: None,
+            aggregator: None,
         };
 
         let state = AppState {

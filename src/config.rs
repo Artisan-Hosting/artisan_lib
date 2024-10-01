@@ -27,7 +27,7 @@ pub struct AppConfig {
     pub debug_mode: bool,
 
     /// Configuration related to the Git functionality.
-    pub git: GitConfig,
+    pub git: Option<GitConfig>,
 
     /// Configuration related to the database (optional example).
     pub database: Option<DatabaseConfig>,
@@ -119,7 +119,7 @@ impl AppConfig {
         if self.max_connections == 0 {
             return Err("max_connections must be greater than 0".into());
         }
-        if self.git.credentials_file.is_empty() {
+        if <std::option::Option<GitConfig> as Clone>::clone(&self.git).unwrap().credentials_file.is_empty() {
             return Err("git.credentials_file must be provided".into());
         }
         if self.app_name.is_empty() {

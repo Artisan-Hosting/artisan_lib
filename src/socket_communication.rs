@@ -1,12 +1,12 @@
-use std::{collections::HashMap, path::PathBuf};
 use dusa_collection_utils::{
-    errors::{
-        ErrorArrayItem, Errors as SE,
-    }, stringy::Stringy, types::PathType
+    errors::{ErrorArrayItem, Errors as SE},
+    stringy::Stringy,
+    types::PathType,
 };
 use nix::unistd::{chown, Gid, Uid};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::{collections::HashMap, path::PathBuf};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
@@ -110,14 +110,16 @@ pub async fn report_status(status: Status, socket_path: &PathType) -> Result<(),
 
 /// Gets a &mut stream from a path given if it's a valid socket
 pub async fn get_socket_stream(path: &PathType) -> Result<UnixStream, ErrorArrayItem> {
-
     match path.exists() {
-        true => {
-            UnixStream::connect(path)
+        true => UnixStream::connect(path)
             .await
-            .map_err(ErrorArrayItem::from)
-        },
-        false => return Err(ErrorArrayItem::new(SE::InvalidFile, "File given doesn't exist".to_owned())),
+            .map_err(ErrorArrayItem::from),
+        false => {
+            return Err(ErrorArrayItem::new(
+                SE::InvalidFile,
+                "File given doesn't exist".to_owned(),
+            ))
+        }
     }
 }
 

@@ -1,22 +1,23 @@
 #[cfg(test)]
 mod tests {
-    use crate::socket_communication::{get_socket_stream, receive_message, send_acknowledge, send_message, set_socket_ownership, GeneralMessage, MessageType};
+    use crate::socket_communication::{
+        get_socket_stream, receive_message, send_acknowledge, send_message, set_socket_ownership,
+        GeneralMessage, MessageType,
+    };
 
-    
     use dusa_collection_utils::errors::Errors;
     use dusa_collection_utils::stringy::Stringy;
     use dusa_collection_utils::types::PathType;
-    
+
     use nix::unistd::{Gid, Uid};
     use serde_json::json;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use std::fs;
-    
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     use std::os::unix::net::UnixListener;
     use std::path::Path;
     use tempfile::{tempdir, TempDir};
     use tokio::net::UnixStream;
-    
 
     async fn setup_mock_unix_stream() -> (UnixStream, UnixStream) {
         UnixStream::pair().expect("Failed to create UnixStream pair")
@@ -40,11 +41,17 @@ mod tests {
         let send_task = send_message(&mut stream, &message);
         let receive_task = async {
             let mut length_bytes = [0u8; 4];
-            mock_stream.read_exact(&mut length_bytes).await.expect("Failed to read length");
+            mock_stream
+                .read_exact(&mut length_bytes)
+                .await
+                .expect("Failed to read length");
             let length = u32::from_be_bytes(length_bytes) as usize;
 
             let mut message_bytes = vec![0u8; length];
-            mock_stream.read_exact(&mut message_bytes).await.expect("Failed to read message");
+            mock_stream
+                .read_exact(&mut message_bytes)
+                .await
+                .expect("Failed to read message");
 
             let received_message: GeneralMessage =
                 serde_json::from_slice(&message_bytes).expect("Failed to deserialize message");
@@ -72,12 +79,20 @@ mod tests {
             let message_bytes = serde_json::to_vec(&message).expect("Failed to serialize message");
             let length_bytes = (message_bytes.len() as u32).to_be_bytes();
 
-            mock_stream.write_all(&length_bytes).await.expect("Failed to write length");
-            mock_stream.write_all(&message_bytes).await.expect("Failed to write message");
+            mock_stream
+                .write_all(&length_bytes)
+                .await
+                .expect("Failed to write length");
+            mock_stream
+                .write_all(&message_bytes)
+                .await
+                .expect("Failed to write message");
         };
 
         let receive_task = async {
-            let received_message = receive_message(&mut stream).await.expect("Failed to receive message");
+            let received_message = receive_message(&mut stream)
+                .await
+                .expect("Failed to receive message");
 
             assert_eq!(received_message.version, message.version);
             assert_eq!(received_message.msg_type, message.msg_type);
@@ -95,11 +110,17 @@ mod tests {
 
         let receive_task = async {
             let mut length_bytes = [0u8; 4];
-            mock_stream.read_exact(&mut length_bytes).await.expect("Failed to read length");
+            mock_stream
+                .read_exact(&mut length_bytes)
+                .await
+                .expect("Failed to read length");
             let length = u32::from_be_bytes(length_bytes) as usize;
 
             let mut message_bytes = vec![0u8; length];
-            mock_stream.read_exact(&mut message_bytes).await.expect("Failed to read message");
+            mock_stream
+                .read_exact(&mut message_bytes)
+                .await
+                .expect("Failed to read message");
 
             let received_message: GeneralMessage =
                 serde_json::from_slice(&message_bytes).expect("Failed to deserialize message");
@@ -125,7 +146,10 @@ mod tests {
         // Call the function with a valid socket path
         let result = get_socket_stream(&path).await;
 
-        assert!(result.is_ok(), "Expected to successfully connect to the socket");
+        assert!(
+            result.is_ok(),
+            "Expected to successfully connect to the socket"
+        );
     }
 
     #[tokio::test]
@@ -140,11 +164,18 @@ mod tests {
         let result = get_socket_stream(&path).await;
 
         // Expecting an error
-        assert!(result.is_err(), "Expected an error due to nonexistent socket file");
+        assert!(
+            result.is_err(),
+            "Expected an error due to nonexistent socket file"
+        );
 
         // Check the type of error
         if let Err(error) = result {
-            assert_eq!(error.err_type, Errors::InvalidFile, "Expected InvalidFile error type");
+            assert_eq!(
+                error.err_type,
+                Errors::InvalidFile,
+                "Expected InvalidFile error type"
+            );
         }
     }
 
@@ -158,7 +189,10 @@ mod tests {
         let gid = Gid::current();
 
         let result = set_socket_ownership(&path, uid, gid);
-        assert!(result.is_ok(), "Expected to set socket ownership successfully");
+        assert!(
+            result.is_ok(),
+            "Expected to set socket ownership successfully"
+        );
     }
 
     // This would have to run as root

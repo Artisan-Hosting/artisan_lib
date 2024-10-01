@@ -31,12 +31,10 @@ pub struct AppConfig {
     pub database: Option<DatabaseConfig>,
 
     /// Configuration for Aggregator communication
-    pub aggregator: Option<Aggregator>
-
-    // Add other configuration sections as needed.
+    pub aggregator: Option<Aggregator>, // Add other configuration sections as needed.
 }
 
-/// Configuration settings for aggregator communication 
+/// Configuration settings for aggregator communication
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Aggregator {
     /// Socket path that the application will use
@@ -68,8 +66,6 @@ pub struct DatabaseConfig {
     pub pool_size: u32,
 }
 
-
-
 impl AppConfig {
     /// Loads the configuration from files and environment variables using `ConfigBuilder`.
     ///
@@ -98,8 +94,8 @@ impl AppConfig {
             // Set defaults for optional database configuration.
             .set_default("database.url", "postgres://user:password@localhost/dbname")?
             .set_default("database.pool_size", 10)?;
-            // Set defaults for aggregator communication.
-            // .set_default("aggregator", value)?
+        // Set defaults for aggregator communication.
+        // .set_default("aggregator", value)?
 
         // Load the default configuration file (Settings.toml).
         let builder = builder.add_source(File::with_name("Settings").required(false));
@@ -148,13 +144,17 @@ impl AppConfig {
     }
 }
 
-
 impl fmt::Display for AppConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
         writeln!(f, "  {}: {}", "Version".bold().cyan(), self.version)?;
-        writeln!(f, "  {}: {}", "Max Connections".bold().cyan(), self.max_connections)?;
+        writeln!(
+            f,
+            "  {}: {}",
+            "Max Connections".bold().cyan(),
+            self.max_connections
+        )?;
         writeln!(f, "  {}: {}", "Environment".bold().cyan(), self.environment)?;
         writeln!(
             f,
@@ -179,7 +179,12 @@ impl fmt::Display for AppConfig {
                     GitServer::Custom(url) => format!("Custom ({})", url).bold(),
                 }
             )?;
-            writeln!(f, "    {}: {}", "Credentials File".bold().cyan(), git.credentials_file)?;
+            writeln!(
+                f,
+                "    {}: {}",
+                "Credentials File".bold().cyan(),
+                git.credentials_file
+            )?;
         } else {
             writeln!(f, "  {}", "Git Configuration: None".italic().dimmed())?;
         }
@@ -187,14 +192,24 @@ impl fmt::Display for AppConfig {
         if let Some(database) = &self.database {
             writeln!(f, "  {}:", "Database Configuration".bold().yellow())?;
             writeln!(f, "    {}: {}", "URL".bold().cyan(), database.url)?;
-            writeln!(f, "    {}: {}", "Connection Pool Size".bold().cyan(), database.pool_size)?;
+            writeln!(
+                f,
+                "    {}: {}",
+                "Connection Pool Size".bold().cyan(),
+                database.pool_size
+            )?;
         } else {
             writeln!(f, "  {}", "Database Configuration: None".italic().dimmed())?;
         }
 
         if let Some(aggregator) = &self.aggregator {
             writeln!(f, "  {}:", "Aggregator Configuration".bold().yellow())?;
-            writeln!(f, "    {}: {}", "Socket Path".bold().cyan(), aggregator.socket_path)?;
+            writeln!(
+                f,
+                "    {}: {}",
+                "Socket Path".bold().cyan(),
+                aggregator.socket_path
+            )?;
             if let Some(permission) = aggregator.socket_permission {
                 writeln!(
                     f,
@@ -206,7 +221,11 @@ impl fmt::Display for AppConfig {
                 writeln!(f, "    {}", "Socket Permission: None".italic().dimmed())?;
             }
         } else {
-            writeln!(f, "  {}", "Aggregator Configuration: None".italic().dimmed())?;
+            writeln!(
+                f,
+                "  {}",
+                "Aggregator Configuration: None".italic().dimmed()
+            )?;
         }
 
         Ok(())

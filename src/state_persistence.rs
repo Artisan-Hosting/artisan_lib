@@ -35,8 +35,18 @@ impl fmt::Display for AppState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}:", "AppState".bold().underline().cyan())?;
         writeln!(f, "  {}: {}", "Data".bold().green(), self.data)?;
-        writeln!(f, "  {}: {}", "Last Updated".bold().yellow(), self.last_updated)?;
-        writeln!(f, "  {}: {}", "Event Counter".bold().magenta(), self.event_counter)?;
+        writeln!(
+            f,
+            "  {}: {}",
+            "Last Updated".bold().yellow(),
+            self.last_updated
+        )?;
+        writeln!(
+            f,
+            "  {}: {}",
+            "Event Counter".bold().magenta(),
+            self.event_counter
+        )?;
         writeln!(
             f,
             "  {}: {}",
@@ -62,10 +72,30 @@ impl fmt::Display for AppState {
             }
         }
         writeln!(f, "  {}:", "Config".bold().purple())?;
-        writeln!(f, "    {}: {}", "App Name".bold().cyan(), self.config.app_name)?;
-        writeln!(f, "    {}: {}", "Version".bold().cyan(), self.config.version)?;
-        writeln!(f, "    {}: {}", "Max Connections".bold().cyan(), self.config.max_connections)?;
-        writeln!(f, "    {}: {}", "Environment".bold().cyan(), self.config.environment)?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "App Name".bold().cyan(),
+            self.config.app_name
+        )?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "Version".bold().cyan(),
+            self.config.version
+        )?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "Max Connections".bold().cyan(),
+            self.config.max_connections
+        )?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "Environment".bold().cyan(),
+            self.config.environment
+        )?;
         writeln!(
             f,
             "    {}: {}",
@@ -79,12 +109,22 @@ impl fmt::Display for AppState {
 
         if let Some(git) = &self.config.git {
             writeln!(f, "    {}:", "Git Configuration".bold().purple())?;
-            writeln!(f, "      {}: {}", "Default Server".bold().cyan(), match &git.default_server {
-                GitServer::GitHub => "GitHub".bold(),
-                GitServer::GitLab => "GitLab".bold(),
-                GitServer::Custom(url) => format!("Custom ({})", url).bold(),
-            })?;
-            writeln!(f, "      {}: {}", "Credentials File".bold().cyan(), git.credentials_file)?;
+            writeln!(
+                f,
+                "      {}: {}",
+                "Default Server".bold().cyan(),
+                match &git.default_server {
+                    GitServer::GitHub => "GitHub".bold(),
+                    GitServer::GitLab => "GitLab".bold(),
+                    GitServer::Custom(url) => format!("Custom ({})", url).bold(),
+                }
+            )?;
+            writeln!(
+                f,
+                "      {}: {}",
+                "Credentials File".bold().cyan(),
+                git.credentials_file
+            )?;
         } else {
             writeln!(f, "    {}", "Git Configuration: None".italic().dimmed())?;
         }
@@ -92,15 +132,23 @@ impl fmt::Display for AppState {
         if let Some(database) = &self.config.database {
             writeln!(f, "    {}:", "Database Configuration".bold().purple())?;
             writeln!(f, "      {}: {}", "URL".bold().cyan(), database.url)?;
-            writeln!(f, "      {}: {}", "Connection Pool Size".bold().cyan(), database.pool_size)?;
+            writeln!(
+                f,
+                "      {}: {}",
+                "Connection Pool Size".bold().cyan(),
+                database.pool_size
+            )?;
         } else {
-            writeln!(f, "    {}", "Database Configuration: None".italic().dimmed())?;
+            writeln!(
+                f,
+                "    {}",
+                "Database Configuration: None".italic().dimmed()
+            )?;
         }
 
         Ok(())
     }
 }
-
 
 pub struct StatePersistence;
 
@@ -122,4 +170,3 @@ impl StatePersistence {
         Ok(state)
     }
 }
-

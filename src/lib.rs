@@ -6,6 +6,7 @@ pub mod notifications;
 pub mod process_manager;
 pub mod resource_monitor;
 pub mod state_persistence;
+pub mod socket_communication;
 pub mod timestamp;
 pub mod users;
 
@@ -27,3 +28,6 @@ mod resource_monitor_test;
 
 #[path = "../src/tests/git_action_tests.rs"]
 mod git_action_tests;
+
+#[path = "../src/tests/socket_communication.rs"]
+mod socket_communication_test;

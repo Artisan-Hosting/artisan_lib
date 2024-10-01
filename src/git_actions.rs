@@ -1,9 +1,11 @@
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::future::Future;
 use std::io::{Read, Write};
 use std::pin::Pin;
 use std::process::Output;
 
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
@@ -612,4 +614,58 @@ pub fn generate_git_project_id(auth: &GitAuth) -> Stringy {
     let hash = create_hash(hash_input);
     let truncated_hash = truncate(&hash, 8);
     truncated_hash.into()
+}
+
+impl fmt::Display for GitServer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GitServer::GitHub => write!(f, "{}", "GitHub.com".bold().cyan()),
+            GitServer::GitLab => write!(f, "{}", "GitLab.com".bold().cyan()),
+            GitServer::Custom(url) => write!(
+                f,
+                "{}: {}",
+                "Custom Server".bold().cyan(),
+                url.bold().yellow()
+            ),
+        }
+    }
+}
+
+impl fmt::Display for GitAuth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "{}:",
+            "Git Authentication Information".bold().underline().purple()
+        )?;
+        writeln!(f, "  {}: {}", "User".bold().cyan(), self.user)?;
+        writeln!(f, "  {}: {}", "Repository".bold().cyan(), self.repo)?;
+        writeln!(f, "  {}: {}", "Branch".bold().cyan(), self.branch)?;
+        writeln!(f, "  {}: {}", "Server".bold().cyan(), self.server)?;
+        if let Some(token) = &self.token {
+            writeln!(f, "  {}: {}", "Token".bold().cyan(), token)?;
+        } else {
+            writeln!(f, "  {}", "Token: None".italic().dimmed())?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for GitCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}:", "Git Credentials".bold().underline().purple())?;
+        if self.auth_items.is_empty() {
+            writeln!(
+                f,
+                "  {}",
+                "No Git Authentication Items Available".italic().dimmed()
+            )?;
+        } else {
+            for (i, auth) in self.auth_items.iter().enumerate() {
+                writeln!(f, "  {}:", format!("Auth Item {}", i + 1).bold().yellow())?;
+                writeln!(f, "{}", auth)?;
+            }
+        }
+        Ok(())
+    }
 }

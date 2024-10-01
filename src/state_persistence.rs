@@ -1,9 +1,11 @@
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{fmt, fs};
 
 use dusa_collection_utils::types::PathType;
 use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 
+use crate::git_actions::GitServer;
 use crate::{
     config::AppConfig,
     encryption::{decrypt_text, encrypt_text},
@@ -29,6 +31,77 @@ pub struct AppState {
     pub config: AppConfig,
 }
 
+impl fmt::Display for AppState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "{}:", "AppState".bold().underline().cyan())?;
+        writeln!(f, "  {}: {}", "Data".bold().green(), self.data)?;
+        writeln!(f, "  {}: {}", "Last Updated".bold().yellow(), self.last_updated)?;
+        writeln!(f, "  {}: {}", "Event Counter".bold().magenta(), self.event_counter)?;
+        writeln!(
+            f,
+            "  {}: {}",
+            "Is Active".bold().blue(),
+            if self.is_active {
+                "Yes".bold().green()
+            } else {
+                "No".bold().red()
+            }
+        )?;
+        writeln!(f, "  {}:", "Error Log".bold().red())?;
+        if self.error_log.is_empty() {
+            writeln!(f, "    {}", "No errors".italic().dimmed())?;
+        } else {
+            for (i, error) in self.error_log.iter().enumerate() {
+                writeln!(
+                    f,
+                    "    {}: {:#?} - {}",
+                    format!("Error {}", i + 1).bold().yellow(),
+                    error.err_type,
+                    error.err_mesg
+                )?;
+            }
+        }
+        writeln!(f, "  {}:", "Config".bold().purple())?;
+        writeln!(f, "    {}: {}", "App Name".bold().cyan(), self.config.app_name)?;
+        writeln!(f, "    {}: {}", "Version".bold().cyan(), self.config.version)?;
+        writeln!(f, "    {}: {}", "Max Connections".bold().cyan(), self.config.max_connections)?;
+        writeln!(f, "    {}: {}", "Environment".bold().cyan(), self.config.environment)?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "Debug Mode".bold().cyan(),
+            if self.config.debug_mode {
+                "Enabled".bold().green()
+            } else {
+                "Disabled".bold().red()
+            }
+        )?;
+
+        if let Some(git) = &self.config.git {
+            writeln!(f, "    {}:", "Git Configuration".bold().purple())?;
+            writeln!(f, "      {}: {}", "Default Server".bold().cyan(), match &git.default_server {
+                GitServer::GitHub => "GitHub".bold(),
+                GitServer::GitLab => "GitLab".bold(),
+                GitServer::Custom(url) => format!("Custom ({})", url).bold(),
+            })?;
+            writeln!(f, "      {}: {}", "Credentials File".bold().cyan(), git.credentials_file)?;
+        } else {
+            writeln!(f, "    {}", "Git Configuration: None".italic().dimmed())?;
+        }
+
+        if let Some(database) = &self.config.database {
+            writeln!(f, "    {}:", "Database Configuration".bold().purple())?;
+            writeln!(f, "      {}: {}", "URL".bold().cyan(), database.url)?;
+            writeln!(f, "      {}: {}", "Connection Pool Size".bold().cyan(), database.pool_size)?;
+        } else {
+            writeln!(f, "    {}", "Database Configuration: None".italic().dimmed())?;
+        }
+
+        Ok(())
+    }
+}
+
+
 pub struct StatePersistence;
 
 impl StatePersistence {
@@ -42,15 +115,6 @@ impl StatePersistence {
 
     pub fn load_state(path: &PathType) -> Result<AppState, Box<dyn std::error::Error>> {
         let encrypted_content: Stringy = fs::read_to_string(path)?.into();
-
-        // You may want to improve this check or handle different encryption formats
-        if !encrypted_content.contains("30312d") {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid encrypted data format",
-            )));
-        }
-
         let content: Stringy = decrypt_text(encrypted_content).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
         })?;
@@ -58,3 +122,4 @@ impl StatePersistence {
         Ok(state)
     }
 }
+

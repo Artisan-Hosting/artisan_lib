@@ -14,6 +14,7 @@ mod tests {
             user: Stringy::new("test_user"),
             repo: Stringy::new("test_repo"),
             branch: Stringy::new("main"),
+            server: GitServer::GitHub,
             token: Some(Stringy::new("test_token")),
         };
 
@@ -35,6 +36,7 @@ mod tests {
             user: Stringy::new("test_user"),
             repo: Stringy::new("test_repo"),
             branch: Stringy::new("main"),
+            server: GitServer::GitHub,
             token: Some(Stringy::new("test_token")),
         };
 
@@ -93,6 +95,7 @@ mod tests {
             user: Stringy::new("test_user"),
             repo: Stringy::new("test_repo"),
             branch: Stringy::new("main"),
+            server: GitServer::GitHub,
             token: Some(Stringy::new("test_token")),
         };
 

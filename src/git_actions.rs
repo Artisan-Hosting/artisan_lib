@@ -35,6 +35,8 @@ pub struct GitAuth {
     pub repo: Stringy,
     /// The branch of the repository.
     pub branch: Stringy,
+    /// The service where the repo is located.
+    pub server: GitServer, 
     /// The authentication token (optional, remove if not used).
     pub token: Option<Stringy>, // Changed to Option to allow absence
 }

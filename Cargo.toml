@@ -16,7 +16,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [dependencies]
-dusa_collection_utils = "2.6.4"
+dusa_collection_utils = "2.6.5"
 
 # Asynchronous runtime
 tokio = { version = "1", features = ["full"] }
@@ -34,3 +34,5 @@ toml = "0.8.19"
 dusa = "1.2.4"
 libc = "0.2.159"
 config = "0.13.3"
+users = "0.11.0"
+walkdir = "2.5.0"

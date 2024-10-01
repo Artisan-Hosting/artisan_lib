@@ -131,6 +131,8 @@ dependencies = [
  "tokio",
  "tokio-uds",
  "toml 0.8.19",
+ "users 0.11.0",
+ "walkdir",
 ]
 
 [[package]]
@@ -532,14 +534,14 @@ dependencies = [
  "serde_json",
  "simple_pretty",
  "simple_tmp_logger",
- "users",
+ "users 0.9.1",
 ]
 
 [[package]]
 name = "dusa_collection_utils"
-version = "2.6.4"
+version = "2.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e68885dc8fbc83d293e11c5c24dcecd1e30657bb8b21eebd2a4e4ac0281db1f0"
+checksum = "9b5956fa496819cbb3a3bdbdf577a94646edb2c9f6b4df56664d12696c9824d3"
 dependencies = [
  "block-modes",
  "cfg_rust_features",
@@ -2723,6 +2725,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c72f4267aea0c3ec6d07eaabea6ead7c5ddacfafc5e22bcf8d186706851fb4cf"
 dependencies = [
  "libc 0.2.159",
+]
+
+[[package]]
+name = "users"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24cc0f6d6f267b73e5a2cadf007ba8f9bc39c6a6f9666f8cf25ea809a153b032"
+dependencies = [
+ "libc 0.2.159",
+ "log",
 ]
 
 [[package]]

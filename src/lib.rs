@@ -7,6 +7,7 @@ pub mod config;
 pub mod encryption;
 pub mod git_actions;
 pub mod timestamp;
+pub mod users;
 
 // tests
 #[path = "../src/tests/encryption_test.rs"]

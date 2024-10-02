@@ -68,8 +68,6 @@ jobs:
           cd dusa
           
           # Run the equivalent commands for building the application
-          cargo update
-          cargo check --release
           cargo build --release
 
           # Remove old versions if they exist
@@ -90,6 +88,7 @@ jobs:
           # Run the make command to build and install the application
           sudo make user_creation
           sudo make register
+          sudo systemctl start dusad
 
       - id: pretty-test
         name: Run cargo pretty-test

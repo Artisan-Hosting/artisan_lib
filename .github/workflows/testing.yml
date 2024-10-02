@@ -61,10 +61,9 @@ jobs:
       - id: install-dependency
         name: Install Additional Dependency
         run: |
-          # Clone the GitHub repository for the dependency
+          export PATH="$HOME/.cargo/bin:$PATH"
           git clone https://github.com/Dj-Codeman/dusa.git
           cd dusa
-          # Run the make command to build and install the application
           sudo make user_creation
           sudo make build
           sudo make register

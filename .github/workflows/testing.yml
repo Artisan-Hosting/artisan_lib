@@ -63,7 +63,7 @@ jobs:
         run: |
           # Clone the GitHub repository for the dependency
           git clone https://github.com/Dj-Codeman/dusa.git
-          cd dependency-repo
+          cd dusa
           # Run the make command to build and install the application
           sudo make all
 

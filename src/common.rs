@@ -1,8 +1,16 @@
 // Frequently used functions
 
-use dusa_collection_utils::{errors::{ErrorArrayItem, Errors}, types::PathType};
+use dusa_collection_utils::{
+    errors::{ErrorArrayItem, Errors},
+    types::PathType,
+};
 
-use crate::{log, logger::LogLevel, state_persistence::{AppState, StatePersistence}, timestamp::current_timestamp};
+use crate::{
+    log,
+    logger::LogLevel,
+    state_persistence::{AppState, StatePersistence},
+    timestamp::current_timestamp,
+};
 
 // Update state and persist it to disk
 pub fn update_state(state: &mut AppState, path: &PathType) {

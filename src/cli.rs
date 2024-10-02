@@ -4,12 +4,14 @@ use dusa_collection_utils::stringy::Stringy;
 
 /// Capture user input from the terminal
 pub fn get_user_input(prompt: &str) -> Stringy {
-    print!("{}", prompt);  // Print the prompt message
-    io::stdout().flush().unwrap();  // Make sure the prompt is printed before user input
+    print!("{}", prompt); // Print the prompt message
+    io::stdout().flush().unwrap(); // Make sure the prompt is printed before user input
 
     let mut input = String::new();
-    io::stdin().read_line(&mut input).expect("Failed to read input");
-    Stringy::new(input.trim())  // Remove any trailing newline or spaces
+    io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read input");
+    Stringy::new(input.trim()) // Remove any trailing newline or spaces
 }
 
 /// Display options and capture the user's selection
@@ -21,7 +23,7 @@ pub fn get_user_selection(options: &[&str]) -> usize {
 
     loop {
         let input = get_user_input("Please enter the number of your choice: ");
-        
+
         // Try to parse the input as a number
         match input.parse::<usize>() {
             Ok(choice) if choice > 0 && choice <= options.len() => return choice,

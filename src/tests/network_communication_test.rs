@@ -6,9 +6,9 @@ mod tests {
     use crate::network_communication::{read_message, send_message};
 
     use super::*;
+    use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;
-    use std::io::{Write, Read};
 
     #[test]
     fn test_send_message() {
@@ -103,7 +103,9 @@ mod tests {
 
             // Write the message to the stream
             stream.write_all(&length.to_be_bytes()).unwrap();
-            stream.write_all(&[wrong_major_version, minor_version]).unwrap();
+            stream
+                .write_all(&[wrong_major_version, minor_version])
+                .unwrap();
             stream.write_all(payload).unwrap();
         });
 

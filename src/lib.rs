@@ -7,6 +7,7 @@ pub mod notifications;
 pub mod process_manager;
 pub mod resource_monitor;
 pub mod socket_communication;
+pub mod network_communication;
 pub mod state_persistence;
 pub mod timestamp;
 pub mod users;

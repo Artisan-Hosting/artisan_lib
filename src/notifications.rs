@@ -3,9 +3,9 @@ use dusa_collection_utils::{
     stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
-use std::{fmt, io::Write, net::TcpStream};
+use std::{fmt, net::TcpStream};
 
-use crate::encryption::encrypt_text;
+use crate::{encryption::encrypt_text, network_communication::send_message};
 
 /// Represents an email message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -69,13 +69,12 @@ impl EmailSecure {
 
     /// Sends the encrypted email data over a TCP stream.
     pub fn send(&self) -> Result<(), ErrorArrayItem> {
-        let mut stream = match TcpStream::connect("45.137.192.70:1827") {
-            Ok(d) => d,
-            Err(e) => return Err(ErrorArrayItem::from(e)),
-        };
-        match stream.write_all(self.data.as_bytes()) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(ErrorArrayItem::from(e)),
-        }
+        // Attempt to connect to the specified address
+        // let mut stream = TcpStream::connect("45.137.192.70:1827")
+        let stream = TcpStream::connect("127.0.0.1:1827")
+            .map_err(|e| ErrorArrayItem::from(e))?;
+    
+        // Use send_message to send self.data
+        send_message(&stream, self.data.as_bytes())
     }
 }

@@ -4,7 +4,7 @@ use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 
-use crate::git_actions::GitServer;
+use crate::{git_actions::GitServer, logger::LogLevel};
 
 /// Represents the application's configuration settings.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -23,6 +23,9 @@ pub struct AppConfig {
 
     /// Optional setting for enabling debug mode.
     pub debug_mode: bool,
+
+    /// Settings for what information is logged
+    pub log_level: LogLevel,
 
     /// Configuration related to the Git functionality.
     pub git: Option<GitConfig>,
@@ -88,6 +91,7 @@ impl AppConfig {
             .set_default("max_connections", 100)?
             .set_default("environment", "development")?
             .set_default("debug_mode", false)?
+            .set_default("log_level", "Info")?
             .set_default("git.default_server", "GitHub")?
             .set_default("git.credentials_file", "/opt/artisan/artisan.cf")?
             .set_default("git.ssh_key_path", None::<String>)?
@@ -98,7 +102,7 @@ impl AppConfig {
         // .set_default("aggregator", value)?
 
         // Load the default configuration file (Settings.toml).
-        let builder = builder.add_source(File::with_name("Settings").required(false));
+        let builder = builder.add_source(File::with_name("Overrides").required(false));
 
         // Load environment-specific configuration files (e.g., Settings.development.toml).
         let builder =
@@ -149,6 +153,7 @@ impl fmt::Display for AppConfig {
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
         writeln!(f, "  {}: {}", "Version".bold().cyan(), self.version)?;
+        writeln!(f, "  {}: {}", "Log Level".bold().cyan(), self.log_level)?;
         writeln!(
             f,
             "  {}: {}",

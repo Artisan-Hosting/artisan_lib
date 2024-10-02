@@ -146,6 +146,22 @@ impl fmt::Display for AppState {
             )?;
         }
 
+        if let Some(aggregator) = &self.config.aggregator {
+            writeln!(f, "    {}:", "Aggregator Configuration".bold().purple())?;
+            writeln!(
+                f,
+                "      {}: {}",
+                "Path".bold().cyan(),
+                aggregator.socket_path
+            )?;
+        } else {
+            writeln!(
+                f,
+                "    {}",
+                "Aggregator Configuration: None".italic().dimmed()
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -153,6 +169,10 @@ impl fmt::Display for AppState {
 pub struct StatePersistence;
 
 impl StatePersistence {
+    pub fn get_state_path(config: &AppConfig) -> PathType {
+        PathType::Content(format!("/tmp/.{}.state", config.app_name))
+    }
+
     pub fn save_state(state: &AppState, path: &PathType) -> Result<(), Box<dyn std::error::Error>> {
         let toml_str: Stringy = toml::to_string(state)?.into();
         let state_data = encrypt_text(toml_str)

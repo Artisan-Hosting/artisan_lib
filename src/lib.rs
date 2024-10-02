@@ -1,5 +1,6 @@
 // This is a successor of the artisan_platform
 pub mod config;
+pub mod logger;
 pub mod encryption;
 pub mod git_actions;
 pub mod notifications;

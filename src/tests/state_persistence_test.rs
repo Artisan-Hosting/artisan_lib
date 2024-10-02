@@ -2,6 +2,7 @@
 mod tests {
     use crate::config::{AppConfig, GitConfig};
     use crate::git_actions::{GitServer, ARTISANCF};
+    use crate::logger::LogLevel;
     use crate::state_persistence::{AppState, StatePersistence};
     use dusa_collection_utils::types::PathType;
     use std::fs;
@@ -23,6 +24,7 @@ mod tests {
             }),
             database: None,
             aggregator: None,
+            log_level: LogLevel::Debug,
         };
 
         let state = AppState {

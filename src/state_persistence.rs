@@ -11,7 +11,7 @@ use crate::{
     encryption::{decrypt_text, encrypt_text},
 };
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct AppState {
     pub data: String, // General-purpose data field for storing string data
 

@@ -1,4 +1,7 @@
-use std::{io::{Read, Write}, net::TcpStream};
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+};
 
 use dusa_collection_utils::errors::ErrorArrayItem;
 
@@ -48,7 +51,10 @@ pub fn read_message(mut stream: &TcpStream) -> Result<(u8, u8, Vec<u8>), ErrorAr
     if major_version != mv {
         return Err(ErrorArrayItem::from(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Unsupported major version: {}. Expected: {}", major_version, MAJOR_VERSION),
+            format!(
+                "Unsupported major version: {}. Expected: {}",
+                major_version, MAJOR_VERSION
+            ),
         )));
     }
 

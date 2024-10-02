@@ -1,8 +1,8 @@
 // src/logger.rs
 
-use std::{fmt, sync::RwLock};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
+use std::{fmt, sync::RwLock};
 
 lazy_static::lazy_static! {
     static ref CURRENT_LOG_LEVEL: RwLock<LogLevel> = RwLock::new(LogLevel::Info);

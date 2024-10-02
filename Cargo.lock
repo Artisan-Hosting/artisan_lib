@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "artisan_middleware"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "chrono",
  "colored",
@@ -533,9 +533,9 @@ checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 
 [[package]]
 name = "dusa"
-version = "1.2.4"
+version = "1.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dacf431e6a4d93d859791a54a290af483e3915a62703d3799d90aba7f568cf77"
+checksum = "036e5031bd5a14a1df6321ab3c52a57256184e08f0acaf8963b5085162f774e5"
 dependencies = [
  "clap",
  "clap_complete",

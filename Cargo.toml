@@ -1,6 +1,6 @@
 [package]
 name = "artisan_middleware"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 authors = [
     "Artisan Hosting",
@@ -33,7 +33,7 @@ nix = "0.20"
 rand = "0.8"
 procfs = "0.16.0"
 toml = "0.8.19"
-dusa = "1.2.4"
+dusa = "1.2.6"
 libc = "0.2.159"
 config = "0.13.3"
 users = "0.11.0"

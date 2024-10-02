@@ -4,6 +4,7 @@ pub mod config;
 pub mod encryption;
 pub mod git_actions;
 pub mod logger;
+pub mod common;
 pub mod network_communication;
 pub mod notifications;
 pub mod process_manager;

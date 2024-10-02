@@ -45,7 +45,6 @@ jobs:
         name: Checkout Repository
         uses: actions/checkout@v4
 
-
       - id: setup
         name: Setup Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,7 +58,15 @@ jobs:
         with:
           tool: cargo-llvm-cov, cargo-nextest
 
-      
+      - id: install-dependency
+        name: Install Additional Dependency
+        run: |
+          # Clone the GitHub repository for the dependency
+          git clone https://github.com/Dj-Codeman/dusa.git
+          cd dependency-repo
+          # Run the make command to build and install the application
+          sudo make all
+
       - id: pretty-test
         name: Run cargo pretty-test
         run: |

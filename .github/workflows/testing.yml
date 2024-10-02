@@ -65,7 +65,9 @@ jobs:
           git clone https://github.com/Dj-Codeman/dusa.git
           cd dusa
           # Run the make command to build and install the application
-          sudo make all
+          sudo make user_creation
+          sudo make build
+          sudo make register
 
       - id: pretty-test
         name: Run cargo pretty-test

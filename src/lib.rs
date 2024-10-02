@@ -1,4 +1,5 @@
 // This is a successor of the artisan_platform
+pub mod cli;
 pub mod config;
 pub mod encryption;
 pub mod git_actions;
@@ -33,3 +34,6 @@ mod git_action_tests;
 
 #[path = "../src/tests/socket_communication.rs"]
 mod socket_communication_test;
+
+#[path = "../src/tests/network_communication_test.rs"]
+mod network_communication_test;

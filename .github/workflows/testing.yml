@@ -64,7 +64,7 @@ jobs:
         name: Run cargo pretty-test
         run: |
           cargo install cargo-pretty-test
-          cargo pretty-test --color=always
+          RUST_BACKTRACE=1 cargo pretty-test --color=always
           echo '```text' >> $GITHUB_STEP_SUMMARY
           echo "$(cargo pretty-test --color=never)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

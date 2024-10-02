@@ -62,10 +62,33 @@ jobs:
         name: Install Additional Dependency
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
+
+          # Clone the GitHub repository for the dependency
           git clone https://github.com/Dj-Codeman/dusa.git
           cd dusa
+          
+          # Run the equivalent commands for building the application
+          cargo update
+          cargo check --release
+          cargo build --release
+
+          # Remove old versions if they exist
+          sudo rm -v /usr/bin/dusa || true
+          sudo rm -v /usr/bin/dusad || true
+
+          # Move the newly built binaries to /usr/bin
+          sudo mv -v ./target/release/server /usr/bin/dusad
+          sudo mv -v ./target/release/client /usr/bin/dusa
+
+          # Set executable permissions on the binaries
+          sudo chmod +x -v /usr/bin/dusad /usr/bin/dusa
+
+          # Set additional permissions using setcap
+          sudo setcap cap_chown=ep /usr/bin/dusa
+          sudo setcap cap_chown=ep /usr/bin/dusad
+
+          # Run the make command to build and install the application
           sudo make user_creation
-          sudo make build
           sudo make register
 
       - id: pretty-test

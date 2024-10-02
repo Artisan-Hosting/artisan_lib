@@ -39,6 +39,7 @@ mod tests {
         // Use a temporary directory to store the state file
         let dir = tempdir().unwrap();
         let path: PathType = dir.path().join("test_state.toml").into();
+        println!("Temporary state path: {:?}", &path);
 
         // Save the state
         let save_result = StatePersistence::save_state(&state, &path);

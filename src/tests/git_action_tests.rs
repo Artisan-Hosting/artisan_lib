@@ -109,7 +109,7 @@ mod tests {
 
         // Save the credentials
         let save_result = credentials.save(&file_path);
-        assert!(save_result.is_ok(), "Expected save to succeed");
+        assert!(save_result.is_ok(), "Expected save to succeed got: {:?}", save_result.err());
 
         // Read the file
         let read_result = GitCredentials::read_file(&file_path);

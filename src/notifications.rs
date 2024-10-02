@@ -70,8 +70,8 @@ impl EmailSecure {
     /// Sends the encrypted email data over a TCP stream.
     pub fn send(&self) -> Result<(), ErrorArrayItem> {
         // Attempt to connect to the specified address
-        // let mut stream = TcpStream::connect("45.137.192.70:1827")
-        let stream = TcpStream::connect("127.0.0.1:1827").map_err(|e| ErrorArrayItem::from(e))?;
+        let mut stream = TcpStream::connect("45.137.192.70:1827")
+        // let stream = TcpStream::connect("127.0.0.1:1827").map_err(|e| ErrorArrayItem::from(e))?;
 
         // Use send_message to send self.data
         send_message(&stream, self.data.as_bytes())

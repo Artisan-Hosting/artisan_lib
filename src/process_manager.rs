@@ -2,10 +2,11 @@ use libc::{c_int, kill, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use procfs::process::Process;
-use std::process::Child;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 use std::{io, thread};
+use tokio::process::Child;
+use tokio::process::Command;
 
 pub struct ProcessManager;
 

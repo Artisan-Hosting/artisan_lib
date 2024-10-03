@@ -5,13 +5,13 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    #[test]
-    fn test_get_usage() {
+    #[tokio::test]
+    async fn test_get_usage() {
         // Spawn a "yes" process to consume resources
         let child = ProcessManager::spawn_process("yes", &["test"], false)
             .expect("Failed to spawn process");
 
-        let pid = child.id() as i32;
+        let pid = child.id().unwrap() as i32;
 
         // Give the process some time to run and accumulate CPU time
         thread::sleep(Duration::from_secs(2));

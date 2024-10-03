@@ -5,14 +5,14 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    #[test]
-    fn test_spawn_process() {
+    #[tokio::test]
+    async fn test_spawn_process() {
         // Spawn a "yes" process that runs indefinitely
         let process = ProcessManager::spawn_process("yes", &["test"], false)
             .expect("Failed to spawn process");
 
         // Assert that the process is running
-        let pid = process.id() as c_int;
+        let pid = process.id().unwrap() as c_int;
         assert!(
             ProcessManager::is_process_running(pid),
             "Process should be running"
@@ -36,12 +36,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_kill_process() {
+    #[tokio::test]
+    async fn test_kill_process() {
         // Spawn a "yes" process
         let process = ProcessManager::spawn_process("yes", &["test"], false)
             .expect("Failed to spawn process");
-        let pid = process.id() as c_int;
+        let pid = process.id().unwrap() as c_int;
 
         // Kill the process
         ProcessManager::kill_process(pid).expect("Failed to kill process");
@@ -60,19 +60,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_restart_process() {
+    #[tokio::test]
+    async fn test_restart_process() {
         // Spawn a "yes" process
         let process = ProcessManager::spawn_process("yes", &["test"], false)
             .expect("Failed to spawn process");
-        let pid = process.id() as c_int;
+        let pid = process.id().unwrap() as c_int;
 
         // Restart the process
         let new_process = ProcessManager::restart_process(pid, "yes", &["test"])
             .expect("Failed to restart process");
 
         // Assert that the new process is running and has a different PID
-        let new_pid = new_process.id() as c_int;
+        let new_pid = new_process.id().unwrap() as c_int;
         assert!(
             ProcessManager::is_process_running(new_pid),
             "New process should be running"
@@ -83,12 +83,12 @@ mod tests {
         ProcessManager::kill_process(new_pid).expect("Failed to kill new process");
     }
 
-    #[test]
-    fn test_send_signal() {
+    #[tokio::test]
+    async fn test_send_signal() {
         // Spawn a "yes" process
         let process = ProcessManager::spawn_process("yes", &["test"], false)
             .expect("Failed to spawn process");
-        let pid = process.id() as c_int;
+        let pid = process.id().unwrap() as c_int;
 
         // Send SIGSTOP to the process
         ProcessManager::send_signal(pid, SIGSTOP).expect("Failed to send SIGSTOP signal");
@@ -114,12 +114,12 @@ mod tests {
         ProcessManager::kill_process(pid).expect("Failed to kill process");
     }
 
-    #[test]
-    fn test_stop_process() {
+    #[tokio::test]
+    async fn test_stop_process() {
         // Spawn a "yes" process that runs indefinitely
         let process = ProcessManager::spawn_process("yes", &["test"], false)
             .expect("Failed to spawn process");
-        let pid = process.id() as c_int;
+        let pid = process.id().unwrap() as c_int;
 
         // Stop the process gracefully
         ProcessManager::stop_process(pid, 5).expect("Failed to stop process");

@@ -593,7 +593,7 @@ async fn execute_git_command(args: &[&str]) -> Result<Output, ErrorArrayItem> {
         Ok(output)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(ErrorArrayItem::new(Errors::GeneralError, stderr))
+        Err(ErrorArrayItem::new(Errors::Git, stderr))
     }
 }
 

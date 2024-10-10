@@ -94,6 +94,11 @@ pub enum GitAction {
     Fetch {
         destination: PathType,
     },
+    RevList {
+        base: String,
+        target: String,
+        destination: PathType,
+    },
 }
 
 impl GitCredentials {
@@ -255,6 +260,39 @@ impl GitCredentials {
                 Ok(default_creds)
             }
         }
+    }
+}
+
+impl GitAuth {
+    /// Assembles the Git remote URL based on the provided information.
+    ///
+    /// # Returns
+    ///
+    /// A full Git remote URL string.
+    pub fn assemble_remote_url(&self) -> String {
+        let base_url = match &self.server {
+            GitServer::GitHub => "https://github.com",
+            GitServer::GitLab => "https://gitlab.com",
+            GitServer::Custom(url) => url.trim_end_matches('/'),
+        };
+
+        // Construct the URL, adding token if available
+        if let Some(token) = &self.token {
+            format!(
+                "https://{}@{}/{}/{}.git",
+                token, base_url, self.user, self.repo
+            )
+        } else {
+            format!("{}/{}/{}.git", base_url, self.user, self.repo)
+        }
+    }
+
+    /// Generates the ais_id for a given project.
+    pub fn generate_id(&self) -> Stringy {
+        Stringy::from(truncate(
+            &create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
+            8,
+        ))
     }
 }
 
@@ -473,6 +511,30 @@ impl GitAction {
                         execute_git_command(&["-C", &directory.to_string(), "branch", "-r"])
                             .await
                             .map(Some)
+                    } else {
+                        Err(ErrorArrayItem::new(
+                            Errors::InvalidFile,
+                            "Repository path not found".to_string(),
+                        ))
+                    }
+                }
+                GitAction::RevList {
+                    base,
+                    target,
+                    destination,
+                } => {
+                    if destination.exists() {
+                        // git rev-list <base>..<target> to get a list of commits on the base not in target
+                        let rev_list_output = execute_git_command(&[
+                            "-C",
+                            &destination.to_string(),
+                            "rev-list",
+                            "--count",
+                            &format!("{}..{}", base, target),
+                        ])
+                        .await?;
+
+                        Ok(Some(rev_list_output))
                     } else {
                         Err(ErrorArrayItem::new(
                             Errors::InvalidFile,

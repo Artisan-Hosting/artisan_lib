@@ -25,6 +25,18 @@ pub fn update_state(state: &mut AppState, path: &PathType) {
     }
 }
 
+// Update the state file in the case of a un handled error
+pub fn wind_down_state(state: &mut AppState, state_path: &PathType) {
+    state.is_active = false;
+    state.data = String::from("Terminated");
+    state.last_updated = current_timestamp();
+    state.error_log.push(ErrorArrayItem::new(
+        Errors::GeneralError,
+        "Wind down requested check logs".to_owned(),
+    ));
+    update_state(state, &state_path);
+}
+
 // Log an error and update the state
 pub fn log_error(state: &mut AppState, error: ErrorArrayItem, path: &PathType) {
     log!(LogLevel::Error, "{}", error);

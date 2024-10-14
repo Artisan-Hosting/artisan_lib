@@ -39,7 +39,7 @@ impl fmt::Display for AppState {
         writeln!(
             f,
             "  {}: {}",
-            "Last Updated".bold().yellow(),
+            "Seconds Since Update".bold().yellow(),
             format_unix_timestamp(self.last_updated)
         )?;
         writeln!(

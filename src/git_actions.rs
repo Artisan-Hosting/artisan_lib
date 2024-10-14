@@ -705,7 +705,7 @@ impl fmt::Display for GitAuth {
         writeln!(f, "  {}: {}", "Branch".bold().cyan(), self.branch)?;
         writeln!(f, "  {}: {}", "Server".bold().cyan(), self.server)?;
         if let Some(token) = &self.token {
-            writeln!(f, "  {}: {}", "Token".bold().cyan(), token)?;
+            writeln!(f, "  {}: {}", "Token (Deprecated stop using)".bold().cyan(), token)?;
         } else {
             writeln!(f, "  {}", "Token: None".italic().dimmed())?;
         }

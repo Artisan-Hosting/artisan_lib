@@ -111,7 +111,7 @@ impl ProcessManager {
         let start_time = Instant::now();
         while start_time.elapsed() < Duration::from_secs(timeout_secs) {
             if !Self::is_process_running(pid) {
-                log!(LogLevel::Trace, "Process with PID: {} has exited", pid);
+                log!(LogLevel::Info, "Process with PID: {} has exited", pid);
                 return Ok(());
             }
             thread::sleep(Duration::from_millis(800));
@@ -126,7 +126,7 @@ impl ProcessManager {
             Self::reap_zombie_process(pid);
         }
 
-        log!(LogLevel::Trace, "Process with PID: {} has been forcefully terminated", pid);
+        log!(LogLevel::Info, "Process with PID: {} has been forcefully terminated", pid);
         state.data = String::from("Process forcefully terminated");
         state.event_counter += 1;
         update_state(state, state_path);

@@ -1,7 +1,10 @@
 // resource_monitor.rs
 
 use std::{
-    fs::File, io::{self, Read}, thread, time::Duration
+    fs::File,
+    io::{self, Read},
+    thread,
+    time::Duration,
 };
 
 use dusa_collection_utils::rwarc::LockWithTimeout;
@@ -21,36 +24,38 @@ impl ResourceMonitorLock {
 
     pub async fn update_loop(&self, delay: u64) {
         let new_monitor_lock: ResourceMonitorLock = self.clone();
-        tokio::spawn(async move { loop {
-            let mut monitor_lock = match new_monitor_lock.0.try_write_with_timeout(None).await {
-                Ok(new_monitor) => new_monitor,
-                Err(err) => {
-                    log!(LogLevel::Error, "Error locking the child: {}", err);
-                    break;
-                },
-            };
-            
-            let new_process: ResourceMonitor = match ResourceMonitor::new(monitor_lock.pid) {
-                Ok(process) => process,
-                Err(e) => {
-                    log!(LogLevel::Error, "Error getting process state: {}", e);
-                    break;
-                },
-            };
+        tokio::spawn(async move {
+            loop {
+                let mut monitor_lock = match new_monitor_lock.0.try_write_with_timeout(None).await {
+                    Ok(new_monitor) => new_monitor,
+                    Err(err) => {
+                        log!(LogLevel::Error, "Error locking the child: {}", err);
+                        break;
+                    }
+                };
 
-            monitor_lock.ram = new_process.ram;
-            monitor_lock.cpu = new_process.cpu;
-            drop(monitor_lock);
-            log!(LogLevel::Trace, "Process monitor updated information");
+                let new_process: ResourceMonitor = match ResourceMonitor::new(monitor_lock.pid) {
+                    Ok(process) => process,
+                    Err(e) => {
+                        log!(LogLevel::Error, "Error getting process state: {}", e);
+                        break;
+                    }
+                };
 
-            thread::sleep(Duration::from_secs(delay));
-        }});
+                monitor_lock.ram = new_process.ram;
+                monitor_lock.cpu = new_process.cpu;
+                drop(monitor_lock);
+                log!(LogLevel::Trace, "Process monitor updated information");
+
+                thread::sleep(Duration::from_secs(delay));
+            }
+        });
     }
 
     pub fn clone(&self) -> Self {
         let data = self;
         let cloned_data = data.0.clone();
-        return ResourceMonitorLock(cloned_data)
+        return ResourceMonitorLock(cloned_data);
     }
 
     pub async fn print_usage(&self) {

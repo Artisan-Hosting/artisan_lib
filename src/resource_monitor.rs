@@ -1,19 +1,83 @@
 // resource_monitor.rs
 
 use std::{
-    fs::File,
-    io::{self, Read},
+    fs::File, io::{self, Read}, thread, time::Duration
 };
 
+use dusa_collection_utils::rwarc::LockWithTimeout;
 use procfs::process::Process;
 
-pub struct ResourceMonitor;
+use crate::{log, logger::LogLevel};
+
+pub struct ResourceMonitorLock(LockWithTimeout<ResourceMonitor>);
+
+impl ResourceMonitorLock {
+    pub fn new(pid: i32) -> Result<Self, Box<dyn std::error::Error>> {
+        let resource_monitor: ResourceMonitor = ResourceMonitor::new(pid)?;
+        let monitor_lock: ResourceMonitorLock =
+            ResourceMonitorLock(LockWithTimeout::new(resource_monitor));
+        Ok(monitor_lock)
+    }
+
+    pub async fn update_loop(delay: u64, monitor_lock: ResourceMonitorLock) {
+        let new_monitor_lock = monitor_lock.clone();
+        tokio::spawn(async move { loop {
+            let mut monitor_lock = match new_monitor_lock.0.try_write_with_timeout(None).await {
+                Ok(new_monitor) => new_monitor,
+                Err(err) => {
+                    log!(LogLevel::Error, "Error locking the child: {}", err);
+                    break;
+                },
+            };
+            
+            let new_process: ResourceMonitor = match ResourceMonitor::new(monitor_lock.pid) {
+                Ok(process) => process,
+                Err(e) => {
+                    log!(LogLevel::Error, "Error getting process state: {}", e);
+                    break;
+                },
+            };
+
+            monitor_lock.ram = new_process.ram;
+            monitor_lock.cpu = new_process.cpu;
+            log!(LogLevel::Trace, "Process monitor updated information");
+
+            thread::sleep(Duration::from_secs(delay));
+        }});
+    }
+
+    pub fn clone(&self) -> Self {
+        let data = self;
+        let cloned_data = data.0.clone();
+        return ResourceMonitorLock(cloned_data)
+    }
+}
+
+pub struct ResourceMonitor {
+    pub pid: i32,
+    pub ram: u64,
+    pub cpu: f32,
+    pub state: procfs::process::Stat,
+}
 
 impl ResourceMonitor {
-    pub fn get_usage(pid: i32) -> Result<(f32, u64), Box<dyn std::error::Error>> {
+    pub fn new(pid: i32) -> Result<Self, Box<dyn std::error::Error>> {
         let process = Process::new(pid)?;
+        let state = process.stat()?;
+        let usage = Self::get_usage(process)?;
+        let cpu = usage.0;
+        let ram = usage.1;
+        Ok(ResourceMonitor {
+            pid,
+            ram,
+            cpu,
+            state,
+        })
+    }
+
+    pub fn get_usage(process: Process) -> Result<(f32, u64), Box<dyn std::error::Error>> {
         let stat = process.stat()?;
-        let memory = process.statm()?.resident * 4096; // Memory in bytes
+        let memory = process.statm()?.resident * 40960; // Memory in mbytes
         let cpu_usage = Self::calculate_cpu_usage(&stat)?;
         Ok((cpu_usage, memory))
     }

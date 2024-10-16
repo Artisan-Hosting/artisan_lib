@@ -19,8 +19,8 @@ impl ResourceMonitorLock {
         Ok(monitor_lock)
     }
 
-    pub async fn update_loop(delay: u64, monitor_lock: ResourceMonitorLock) {
-        let new_monitor_lock = monitor_lock.clone();
+    pub async fn update_loop(&self, delay: u64) {
+        let new_monitor_lock: ResourceMonitorLock = self.clone();
         tokio::spawn(async move { loop {
             let mut monitor_lock = match new_monitor_lock.0.try_write_with_timeout(None).await {
                 Ok(new_monitor) => new_monitor,
@@ -40,6 +40,7 @@ impl ResourceMonitorLock {
 
             monitor_lock.ram = new_process.ram;
             monitor_lock.cpu = new_process.cpu;
+            drop(monitor_lock);
             log!(LogLevel::Trace, "Process monitor updated information");
 
             thread::sleep(Duration::from_secs(delay));
@@ -50,6 +51,12 @@ impl ResourceMonitorLock {
         let data = self;
         let cloned_data = data.0.clone();
         return ResourceMonitorLock(cloned_data)
+    }
+
+    pub async fn print_usage(&self) {
+        let d0 = self.0.try_read().await.unwrap();
+        println!("ram: {}", d0.ram);
+        println!("cpu: {}", d0.cpu);
     }
 }
 
@@ -77,7 +84,7 @@ impl ResourceMonitor {
 
     pub fn get_usage(process: Process) -> Result<(f32, u64), Box<dyn std::error::Error>> {
         let stat = process.stat()?;
-        let memory = process.statm()?.resident * 40960; // Memory in mbytes
+        let memory = process.statm()?.resident * 4096; // Memory in bytes
         let cpu_usage = Self::calculate_cpu_usage(&stat)?;
         Ok((cpu_usage, memory))
     }

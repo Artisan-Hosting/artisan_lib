@@ -1,11 +1,14 @@
-use libc::{c_int, kill, SIGKILL, SIGTERM};
+use dusa_collection_utils::errors::Errors;
+use dusa_collection_utils::rwarc::LockWithTimeout;
+use libc::{c_int, kill, killpg, SIGKILL};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use std::process::Stdio;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{io, thread};
 use tokio::process::{Child, Command};
 
+use crate::resource_monitor::ResourceMonitorLock;
 use crate::{
     common::{log_error, update_state},
     log,
@@ -14,248 +17,293 @@ use crate::{
 };
 use dusa_collection_utils::{errors::ErrorArrayItem, types::PathType};
 
-pub struct ProcessManager;
+pub struct ChildLock(LockWithTimeout<Child>);
 
-impl ProcessManager {
-    /// Spawn an asynchronous process, similar to the `create_child` logic
-    pub async fn spawn_process(
-        command: &str,
-        args: &[&str],
-        capture_output: bool,
-        state: &mut AppState,
-        state_path: &PathType,
-    ) -> Result<Child, io::Error> {
-        log!(
-            LogLevel::Trace,
-            "Spawning process: {} with args: {:?}",
-            command,
-            args
-        );
+pub struct SupervisedChild {
+    pub child: ChildLock,
+    pub monitor: ResourceMonitorLock,
+}
 
-        let mut cmd = Command::new(command);
-        cmd.args(args);
+impl SupervisedChild {
+    /// Default creates a complex service that captures the std.
+    /// This also spawns in its own process group
+    pub async fn new(command: Command) -> Result<Self, ErrorArrayItem> {
+        spawn_complex_process(command, true, true).await
+    }
 
-        if capture_output {
-            cmd.stdout(Stdio::piped());
-            cmd.stderr(Stdio::piped());
-        } else {
-            cmd.stdout(Stdio::null());
-            cmd.stderr(Stdio::null());
-        }
-
-        // Spawn child process
-        let child = match cmd.spawn() {
-            Ok(child_process) => {
-                log!(
-                    LogLevel::Trace,
-                    "Child process spawned successfully: {:?}",
-                    child_process
-                );
-                state.data = String::from("Process spawned");
-                state.event_counter += 1;
-                update_state(state, state_path);
-                Ok(child_process)
-            }
+    pub async fn get_pid(&self) -> Result<u32, ErrorArrayItem> {
+        let child_lock = &self.child;
+        let child_data = match child_lock.0.try_read().await {
+            Ok(cd) => cd,
             Err(e) => {
-                let err_ref = e.get_ref().unwrap();
-
-                log!(
-                    LogLevel::Error,
-                    "Failed to spawn child process: {}",
-                    err_ref
-                );
-                let error_item: ErrorArrayItem = ErrorArrayItem::new(
-                    dusa_collection_utils::errors::Errors::InputOutput,
-                    err_ref.to_string(),
-                );
-                log_error(state, error_item, state_path);
-                Err(e)
+                log!(LogLevel::Error, "{}", e);
+                return Err(e);
             }
         };
 
-        child
+        return match child_data.id() {
+            Some(xid) => Ok(xid),
+            None => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid PID").into()),
+        };
     }
 
-    pub async fn spawn_complex_process(
-        mut command: Command,
-        independent_process_group: bool,
-        capture_output: bool,
-        state: &mut AppState,
-        state_path: &PathType,
-    ) -> Result<Child, io::Error> {
-        log!(LogLevel::Trace, "Child to spawn: {:?}", &command);
+    pub async fn clone(&self) -> Self {
+        let monitor_lock: &ResourceMonitorLock = &self.monitor;
+        let child_lock: &ChildLock = &self.child;
 
-        if independent_process_group {
-            unsafe {
-                command.pre_exec(|| {
-                    if libc::setsid() == -1 {
-                        return Err(io::Error::last_os_error());
-                    }
-                    Ok(())
-                })
-            };
-        } else {
-            log!(
-                LogLevel::Trace,
-                "Complex process being spawned in the same CGroup"
-            );
-        };
+        let monitor: ResourceMonitorLock = monitor_lock.clone();
+        let child: ChildLock = child_lock.clone();
 
-        if capture_output {
-            command.stdout(Stdio::piped());
-            command.stderr(Stdio::piped());
-        } else {
-            command.stdout(Stdio::null());
-            command.stderr(Stdio::null());
-        };
-
-        match command.spawn() {
-            Ok(child) => {
-                log!(
-                    LogLevel::Trace,
-                    "Child process spawned successfully: {:#?}",
-                    child
-                );
-
-                state.data = format!("PID: {}", child.id().unwrap_or(99999999));
-                state.event_counter += 1;
-                update_state(state, state_path);
-
-                Ok(child)
-            }
-            Err(error) => {
-                let error_ref = match error.get_ref() {
-                    Some(err_ref) => err_ref,
-                    None => unimplemented!(),
-                };
-
-                let error_item = ErrorArrayItem::new(
-                    dusa_collection_utils::errors::Errors::InputOutput,
-                    error_ref.to_string(),
-                );
-
-                log!(
-                    LogLevel::Error,
-                    "Failed to spawn child process: {}",
-                    error_ref
-                );
-
-                log_error(state, error_item, state_path);
-
-                return Err(error);
-            }
-        }
+        Self { child, monitor }
     }
 
-    /// Kill a process with SIGTERM, followed by SIGKILL if the process doesn't exit
-    pub async fn kill_process(
-        pid: c_int,
-        state: &mut AppState,
-        state_path: &PathType,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log!(
-            LogLevel::Trace,
-            "Attempting to gracefully terminate process with PID: {}",
-            pid
-        );
+    pub async fn kill(self) -> Result<(), ErrorArrayItem> {
+        self.child.kill().await
+    }
 
-        // Attempt to gracefully terminate first (send SIGTERM)
+    pub async fn running(self) -> bool {
+        let xid = match self.get_pid().await {
+            Ok(xid) => xid,
+            Err(_) => return false,
+        };
+
+        ChildLock::running(xid.try_into().unwrap())
+    }
+
+    /// Spawns a endless loop that updates the resource monitor from /proc
+    pub async fn monitor_usage(&self) {
+        let d0: &ResourceMonitorLock = &self.monitor;
+        d0.update_loop(30).await; // 30 secs so most trys with timeouts will work
+    }
+
+    // pub async fn check_usage(&self) {
+    //     self.monitor.print_usage().await;
+    // }
+}
+
+impl ChildLock {
+    pub fn new(child: Child) -> Self {
+        let rw_lock: LockWithTimeout<Child> = LockWithTimeout::new(child);
+        Self(rw_lock)
+    }
+
+    pub fn update(mut self, new_child: Child) -> Self {
+        self.0 = LockWithTimeout::new(new_child);
+        return self;
+    }
+
+    pub fn clone(&self) -> Self {
+        ChildLock(self.0.clone())
+    }
+
+    pub async fn kill(&self) -> Result<(), ErrorArrayItem> {
+        let child = self.0.try_read().await?;
+
+        let xid = match child.id() {
+            Some(xid) => xid,
+            None => {
+                return Err(ErrorArrayItem::new(
+                    dusa_collection_utils::errors::Errors::InputOutput,
+                    "No xid provided".to_owned(),
+                ))
+            }
+        };
+
+        // Kill the entire process group
         unsafe {
-            if kill(pid, SIGTERM) != 0 {
-                return Err(io::Error::last_os_error().into());
+            let pgid = xid; // Since we set pgid to pid in pre_exec
+            if killpg(pgid as i32, SIGKILL) == -1 {
+                // apperently in C -1 is the errono ?
+                let err = io::Error::last_os_error();
+                log!(
+                    LogLevel::Error,
+                    "Failed to kill child process group: {}",
+                    err
+                );
+                return Err(ErrorArrayItem::new(Errors::GeneralError, err.to_string()));
+                // log_error(&mut state, error, &state_path);
             }
-            Self::reap_zombie_process(pid);
-        }
+        };
 
         // Wait for a moment to see if the process terminates
         thread::sleep(Duration::from_secs(1));
 
         // If still running, force kill the process (send SIGKILL)
-        if Self::is_process_running(pid) {
-            log!(
-                LogLevel::Warn,
-                "Process with PID: {} did not terminate, sending SIGKILL",
-                pid
-            );
-            unsafe {
-                if kill(pid, SIGKILL) != 0 {
-                    return Err(io::Error::last_os_error().into());
+        if let Ok(xid) = xid.try_into() {
+            match Self::running(xid) {
+                true => {
+                    log!(
+                        LogLevel::Warn,
+                        "Process with PID: {} did not terminate, sending SIGKILL",
+                        xid
+                    );
+                    unsafe {
+                        if kill(xid, SIGKILL) != 0 {
+                            return Err(io::Error::last_os_error().into());
+                        }
+                        Self::reap_zombie_process(xid);
+                        log!(LogLevel::Trace, "Process with PID: {} terminated", xid);
+                        return Ok(());
+                    }
                 }
-                Self::reap_zombie_process(pid);
+                false => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid PID").into())
+                }
             }
+        } else {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid PID").into());
         }
-
-        log!(LogLevel::Trace, "Process with PID: {} terminated", pid);
-        state.data = String::from("Process terminated");
-        state.event_counter += 1;
-        update_state(state, state_path);
-
-        Ok(())
     }
 
     /// Check if a process is running based on its PID
-    pub fn is_process_running(pid: c_int) -> bool {
+    pub fn running(pid: c_int) -> bool {
         unsafe { kill(pid, 0) == 0 }
     }
 
-    /// Gracefully stop a process with a timeout, falling back to SIGKILL if needed
-    pub async fn stop_process(
-        pid: c_int,
-        timeout_secs: u64,
-        state: &mut AppState,
-        state_path: &PathType,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log!(
-            LogLevel::Trace,
-            "Stopping process with PID: {} with a timeout of {} seconds",
-            pid,
-            timeout_secs
-        );
+    /// Reap zombie processes to clean up system resources
+    fn reap_zombie_process(pid: c_int) {
+        let _ = waitpid(Pid::from_raw(pid), None);
+    }
+}
 
-        unsafe {
-            if kill(pid, SIGTERM) != 0 {
-                return Err(io::Error::last_os_error().into());
-            }
-            Self::reap_zombie_process(pid);
-        }
+/// Spawn an asynchronous process, similar to the `create_child` logic
+pub async fn spawn_simple_process(
+    command: &str,
+    args: &[&str],
+    capture_output: bool,
+    state: &mut AppState,
+    state_path: &PathType,
+) -> Result<Child, io::Error> {
+    log!(
+        LogLevel::Trace,
+        "Spawning process: {} with args: {:?}",
+        command,
+        args
+    );
 
-        // Wait for the process to exit, with a timeout
-        let start_time = Instant::now();
-        while start_time.elapsed() < Duration::from_secs(timeout_secs) {
-            if !Self::is_process_running(pid) {
-                log!(LogLevel::Info, "Process with PID: {} has exited", pid);
-                return Ok(());
-            }
-            thread::sleep(Duration::from_millis(800));
-        }
+    let mut cmd = Command::new(command);
+    cmd.args(args);
 
-        // If the process did not exit, send SIGKILL
-        log!(
-            LogLevel::Warn,
-            "Process with PID: {} did not exit, sending SIGKILL",
-            pid
-        );
-        unsafe {
-            if kill(pid, SIGKILL) != 0 {
-                return Err(io::Error::last_os_error().into());
-            }
-            Self::reap_zombie_process(pid);
-        }
-
-        log!(
-            LogLevel::Info,
-            "Process with PID: {} has been forcefully terminated",
-            pid
-        );
-        state.data = String::from("Process forcefully terminated");
-        state.event_counter += 1;
-        update_state(state, state_path);
-
-        Ok(())
+    if capture_output {
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+    } else {
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
     }
 
-    /// Reap zombie processes to clean up system resources
-    fn reap_zombie_process(pid: i32) {
-        let _ = waitpid(Pid::from_raw(pid), None);
+    // Spawn child process
+    let child: Result<Child, io::Error> = match cmd.spawn() {
+        Ok(child_process) => {
+            log!(
+                LogLevel::Trace,
+                "Child process spawned successfully: {:?}",
+                child_process
+            );
+            state.data = String::from("Process spawned");
+            state.event_counter += 1;
+            update_state(state, state_path);
+            Ok(child_process)
+        }
+        Err(e) => {
+            let err_ref = e.get_ref().unwrap();
+
+            log!(
+                LogLevel::Error,
+                "Failed to spawn child process: {}",
+                err_ref
+            );
+            let error_item: ErrorArrayItem = ErrorArrayItem::new(
+                dusa_collection_utils::errors::Errors::InputOutput,
+                err_ref.to_string(),
+            );
+            log_error(state, error_item, state_path);
+            Err(e)
+        }
+    };
+
+    child
+}
+
+pub async fn spawn_complex_process(
+    mut command: Command,
+    independent_process_group: bool,
+    capture_output: bool,
+) -> Result<SupervisedChild, ErrorArrayItem> {
+    log!(LogLevel::Trace, "Child to spawn: {:?}", &command);
+
+    if independent_process_group {
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            })
+        };
+    } else {
+        log!(
+            LogLevel::Trace,
+            "Complex process being spawned in the same CGroup"
+        );
+    };
+
+    if capture_output {
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+    } else {
+        command.stdout(Stdio::null());
+        command.stderr(Stdio::null());
+    };
+
+    match command.spawn() {
+        Ok(child) => {
+            log!(
+                LogLevel::Trace,
+                "Child process spawned successfully: {:#?}",
+                child
+            );
+
+            let pid = match child.id() {
+                Some(d) => d,
+                None => {
+                    return Err(ErrorArrayItem::new(
+                        Errors::InputOutput,
+                        "Couldn't determined if process spawned".to_owned(),
+                    ))
+                }
+            };
+
+            let monitor: ResourceMonitorLock = match ResourceMonitorLock::new(pid as i32) {
+                Ok(resource_monitor) => resource_monitor,
+                Err(e) => {
+                    return Err(ErrorArrayItem::from(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    )))
+                }
+            };
+
+            //  Creating the rw_lock for the child
+            let child: ChildLock = ChildLock::new(child);
+
+            let supervised_child: SupervisedChild = SupervisedChild { child, monitor };
+
+            Ok(supervised_child)
+        }
+        Err(error) => {
+            let error_ref = match error.get_ref() {
+                Some(err_ref) => err_ref,
+                None => unimplemented!(),
+            };
+
+            log!(
+                LogLevel::Error,
+                "Failed to spawn child process: {}",
+                error_ref
+            );
+
+            return Err(ErrorArrayItem::from(error));
+        }
     }
 }

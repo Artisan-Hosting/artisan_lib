@@ -1,5 +1,5 @@
 use dusa_collection_utils::{
-    errors::{ErrorArray, ErrorArrayItem},
+    errors::ErrorArrayItem,
     functions::{create_hash, truncate},
     stringy::Stringy,
     types::PathType,
@@ -7,11 +7,11 @@ use dusa_collection_utils::{
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
-    net::{IpAddr, Ipv4Addr},
+    net::Ipv4Addr,
 };
 
 use crate::{
-    encryption::encrypt_text, git_actions::GitCredentials, identity_test, log, logger::LogLevel, network_communication::get_local_ip, timestamp::{current_timestamp, format_unix_timestamp}
+    encryption::encrypt_text, git_actions::GitCredentials, log, logger::LogLevel, network_communication::get_local_ip, timestamp::{current_timestamp, format_unix_timestamp}
 };
 
 pub const IDENTITYPATHSTR: &str = "/usr/local/identity.jais";

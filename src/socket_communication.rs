@@ -1,10 +1,9 @@
 use dusa_collection_utils::{
     errors::{ErrorArrayItem, Errors as SE},
-    stringy::Stringy,
     types::PathType,
 };
 use nix::unistd::{chown, Gid, Uid};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use std::path::PathBuf;
 use dusa_collection_utils::errors::Errors;
@@ -206,7 +205,7 @@ pub fn get_socket(config: &AppConfig) -> PathType {
     let socket_path = match aggregator_info {
         Some(agg) => {
             let path = agg.socket_path.clone();
-            let permissions = agg.socket_permission;
+            let _permissions = agg.socket_permission;
             // * add logic to verify the socket has the right permissions
             path
         }

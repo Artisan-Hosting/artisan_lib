@@ -1,6 +1,6 @@
 use std::{
     io::{Read, Write},
-    net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs},
+    net::{Ipv4Addr, TcpStream},
 };
 use get_if_addrs::get_if_addrs;
 

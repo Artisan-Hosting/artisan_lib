@@ -7,7 +7,6 @@ use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 
 use crate::git_actions::GitServer;
 use crate::timestamp::format_unix_timestamp;
-use crate::version;
 use crate::{
     config::AppConfig,
     encryption::{decrypt_text, encrypt_text},

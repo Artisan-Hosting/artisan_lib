@@ -15,6 +15,7 @@ use crate::{
 // Update state and persist it to disk
 pub fn update_state(state: &mut AppState, path: &PathType) {
     state.last_updated = current_timestamp();
+    state.event_counter += 1;
     if let Err(err) = StatePersistence::save_state(state, path) {
         log!(LogLevel::Error, "Failed to save state: {}", err);
         state.is_active = false;

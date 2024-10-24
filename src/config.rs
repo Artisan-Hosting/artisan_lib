@@ -1,16 +1,21 @@
 use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
+use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy, types::PathType};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 
-use crate::{git_actions::GitServer, logger::LogLevel};
+use crate::{
+    git_actions::GitServer,
+    logger::LogLevel,
+    version::SoftwareVersion,
+};
 
 /// Represents the application's configuration settings.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct AppConfig {
     /// A name for the application instance.
-    pub app_name: String,
+    pub app_name: Stringy,
 
     /// Version of the application.
     pub version: String,
@@ -41,7 +46,7 @@ pub struct AppConfig {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Aggregator {
     /// Socket path that the application will use
-    pub socket_path: String,
+    pub socket_path: PathType,
 
     /// Permissions for the socket
     pub socket_permission: Option<u32>,
@@ -83,11 +88,14 @@ impl AppConfig {
         // Detect the run mode (e.g., development, production) from the RUN_MODE environment variable.
         let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "development".into());
 
+        let version =
+            serde_json::to_string(&SoftwareVersion::dummy()).map_err(|e| ConfigError::Foreign(Box::new(e)))?;
+
         // Start building the configuration using ConfigBuilder.
         let builder = Config::builder()
             // Set default values.
             .set_default("app_name", "MyApp")?
-            .set_default("version", "1.0.0")?
+            .set_default("version", version)?
             .set_default("max_connections", 100)?
             .set_default("environment", "development")?
             .set_default("debug_mode", false)?
@@ -146,13 +154,20 @@ impl AppConfig {
 
         Ok(())
     }
+
+    pub fn get_version(&self) -> Result<SoftwareVersion, ErrorArrayItem> {
+        let version: SoftwareVersion = serde_json::from_str(&self.version)?;
+        Ok(version)
+    }
 }
 
 impl fmt::Display for AppConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let version = self.get_version().unwrap();
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
-        writeln!(f, "  {}: {}", "Version".bold().cyan(), self.version)?;
+        writeln!(f, "  {}: {}", "Application Version".bold().cyan(), version.application)?;
+        writeln!(f, "  {}: {}", "Library Version".bold().cyan(), version.library)?;
         writeln!(f, "  {}: {}", "Log Level".bold().cyan(), self.log_level)?;
         writeln!(
             f,

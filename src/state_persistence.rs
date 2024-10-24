@@ -7,6 +7,7 @@ use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 
 use crate::git_actions::GitServer;
 use crate::timestamp::format_unix_timestamp;
+use crate::version;
 use crate::{
     config::AppConfig,
     encryption::{decrypt_text, encrypt_text},
@@ -34,6 +35,7 @@ pub struct AppState {
 
 impl fmt::Display for AppState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let version = self.config.get_version().unwrap();
         writeln!(f, "{}:", "AppState".bold().underline().cyan())?;
         writeln!(f, "  {}: {}", "Data".bold().green(), self.data)?;
         writeln!(
@@ -82,8 +84,14 @@ impl fmt::Display for AppState {
         writeln!(
             f,
             "    {}: {}",
-            "Version".bold().cyan(),
-            self.config.version
+            "Software Version".bold().cyan(),
+            version.application
+        )?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "Library Version".bold().cyan(),
+            version.library
         )?;
         writeln!(
             f,

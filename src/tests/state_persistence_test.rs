@@ -4,6 +4,7 @@ mod tests {
     use crate::git_actions::{GitServer, ARTISANCF};
     use crate::logger::LogLevel;
     use crate::state_persistence::{AppState, StatePersistence};
+    use crate::version::{SoftwareVersion, Version};
     use dusa_collection_utils::types::PathType;
     use std::fs;
     use std::path::PathBuf;
@@ -14,8 +15,8 @@ mod tests {
     fn test_save_and_load_state() {
         // Create a mock state
         let app_config: AppConfig = AppConfig {
-            app_name: "Test app".to_owned(),
-            version: "1.0.2".to_owned(),
+            app_name: dusa_collection_utils::stringy::Stringy::Mutable("Test app".to_owned()),
+            version: serde_json::to_string(&SoftwareVersion::new(env!("CARGO_PKG_VERSION"))).unwrap(),
             max_connections: 22,
             environment: "PORT=3306".to_owned(),
             debug_mode: false,

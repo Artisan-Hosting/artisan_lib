@@ -6,10 +6,19 @@ use dusa_collection_utils::{
 use nix::unistd::{chown, Gid, Uid};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
+use dusa_collection_utils::errors::Errors;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
+};
+
+use crate::{
+    communication::{GeneralMessage, MessageType, Status},
+    config::{Aggregator, AppConfig},
+    log,
+    logger::LogLevel,
+    version::SoftwareVersion,
 };
 
 /// Encodes a message with a length prefix and sends it over the stream.
@@ -17,44 +26,113 @@ pub async fn send_message<T: Serialize>(
     stream: &mut UnixStream,
     message: &T,
 ) -> Result<(), ErrorArrayItem> {
-    let message_bytes = serde_json::to_vec(message).map_err(ErrorArrayItem::from)?;
+    // Serialize the message into bytes
+    let message_bytes = serde_json::to_vec(message).map_err(|e| {
+        ErrorArrayItem::new(Errors::GeneralError, format!("Serialization error: {}", e))
+    })?;
+    
+    // Get the length of the message and encode it as a 4-byte big-endian array
     let length_bytes = (message_bytes.len() as u32).to_be_bytes();
+    
+    // Send the length of the message first
+    stream.write_all(&length_bytes).await.map_err(|e| {
+        ErrorArrayItem::new(
+            Errors::GeneralError,
+            format!("Failed to write message length: {}", e),
+        )
+    })?;
 
-    stream
-        .write_all(&length_bytes)
-        .await
-        .map_err(ErrorArrayItem::from)?;
+    // Log the length bytes for debugging
+    log!(
+        LogLevel::Trace,
+        "Sent message length: {:?} bytes: {:#?}",
+        message_bytes.len(),
+        length_bytes
+    );
+    
+    // Send the actual message bytes
+    stream.write_all(&message_bytes).await.map_err(|e| {
+        ErrorArrayItem::new(
+            Errors::GeneralError,
+            format!("Failed to send message: {}", e),
+        )
+    })?;
 
-    stream
-        .write_all(&message_bytes)
-        .await
-        .map_err(ErrorArrayItem::from)?;
+    // Log the message bytes for debugging
+    log!(
+        LogLevel::Trace,
+        "Sent message: {:#?}",
+        message_bytes
+    );
 
     Ok(())
 }
 
 /// Reads a length-prefixed message from the stream and decodes it.
-pub async fn receive_message(stream: &mut UnixStream) -> Result<GeneralMessage, ErrorArrayItem> {
+pub async fn receive_message(stream: &mut UnixStream) -> Result<Vec<u8>, ErrorArrayItem> {
     let mut length_bytes = [0u8; 4];
+
+    // Read the length prefix (4 bytes)
     stream
         .read_exact(&mut length_bytes)
         .await
-        .map_err(ErrorArrayItem::from)?;
+        .map_err(|e| {
+            ErrorArrayItem::new(
+                Errors::GeneralError,
+                format!("Failed to read message length: {}", e)
+            )
+        })?;
 
+    // Convert the 4-byte array into a usize value
     let length = u32::from_be_bytes(length_bytes) as usize;
+
+    // Log the received length for debugging
+    log!(
+        LogLevel::Trace,
+        "Received message length: {} bytes",
+        length
+    );
+
+    // Prepare a buffer of the size specified by the length prefix
     let mut message_bytes = vec![0u8; length];
+
+    // Read the message body
     stream
         .read_exact(&mut message_bytes)
         .await
-        .map_err(ErrorArrayItem::from)?;
+        .map_err(|e| {
+            ErrorArrayItem::new(
+                Errors::GeneralError,
+                format!("Failed to read message body of length {}: {}", length, e)
+            )
+        })?;
 
-    serde_json::from_slice(&message_bytes).map_err(ErrorArrayItem::from)
+    // Log the message bytes for debugging
+    log!(
+        LogLevel::Trace,
+        "Received message: {:#?}",
+        message_bytes
+    );
+
+    // Deserialize the message bytes into a `GeneralMessage`
+    // let message: GeneralMessage = serde_json::from_slice(&message_bytes.as_slice()).map_err(|e| {
+    //     ErrorArrayItem::new(
+    //         Errors::GeneralError,
+    //         format!(
+    //             "Failed to deserialize message: {}, message bytes: {:?}",
+    //             e,
+    //             String::from_utf8_lossy(&message_bytes)
+    //         )
+    //     )
+    // })?;
+
+    Ok(message_bytes)
 }
 
 /// Sends an acknowledgment message over the stream.
-pub async fn send_acknowledge(stream: &mut UnixStream) {
+pub async fn send_acknowledge(stream: &mut UnixStream, version: SoftwareVersion) {
     let ack_message = GeneralMessage {
-        version: Stringy::from_string(env!("CARGO_PKG_VERSION").to_string()),
+        version: version,
         msg_type: MessageType::Acknowledgment,
         payload: json!({"message_received": true}),
         error: None,
@@ -68,7 +146,7 @@ pub async fn report_status(status: Status, socket_path: &PathType) -> Result<(),
     let mut stream: UnixStream = get_socket_stream(socket_path).await?;
 
     let general_message = GeneralMessage {
-        version: Stringy::from_string(env!("CARGO_PKG_VERSION").to_string()),
+        version: SoftwareVersion::new(env!("CARGO_PKG_VERSION")),
         msg_type: MessageType::StatusUpdate,
         payload: serde_json::to_value(&status).map_err(ErrorArrayItem::from)?,
         error: None,
@@ -123,72 +201,21 @@ pub async fn get_socket_stream(path: &PathType) -> Result<UnixStream, ErrorArray
     }
 }
 
+pub fn get_socket(config: &AppConfig) -> PathType {
+    let aggregator_info: &Option<Aggregator> = &config.aggregator;
+    let socket_path = match aggregator_info {
+        Some(agg) => {
+            let path = agg.socket_path.clone();
+            let permissions = agg.socket_permission;
+            // * add logic to verify the socket has the right permissions
+            path
+        }
+        None => PathType::Str("/tmp/monitor.sock".into()),
+    };
+    socket_path
+}
+
 /// Sets ownership of the socket file to the given UID and GID.
 pub fn set_socket_ownership(path: &PathBuf, uid: Uid, gid: Gid) -> Result<(), ErrorArrayItem> {
     chown(path, Some(uid), Some(gid)).map_err(ErrorArrayItem::from)
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum QueryType {
-    Status,
-    AllStatuses,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct QueryMessage {
-    pub query_type: QueryType,
-    pub app_name: Option<AppName>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct QueryResponse {
-    pub version: Stringy,
-    pub app_status: Option<Status>,
-    pub all_statuses: Option<HashMap<AppName, Status>>, // New field for all statuses
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum MessageType {
-    StatusUpdate,
-    Acknowledgment,
-    Query,
-}
-
-/// General structure for messages
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GeneralMessage {
-    pub version: Stringy,
-    pub msg_type: MessageType,
-    pub payload: serde_json::Value,
-    pub error: Option<Stringy>, // Simplified for this example
-}
-
-/// Enum representing the status of an application.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum AppStatus {
-    Running,
-    Stopped,
-    TimedOut,
-    Warning,
-}
-
-/// Enum representing the name of an application.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
-pub enum AppName {
-    // These are artisan_platform components
-    Github,
-    Directive,
-    Apache,
-    Systemd,
-    // Firewall,
-    Security,
-}
-
-/// Struct representing the status of an application at a specific time.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct Status {
-    pub app_name: AppName,
-    pub app_status: AppStatus,
-    pub timestamp: u64,
-    pub version: Stringy, // Add version field
 }

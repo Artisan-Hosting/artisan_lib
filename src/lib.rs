@@ -5,6 +5,8 @@ pub mod config;
 pub mod encryption;
 pub mod git_actions;
 pub mod logger;
+pub mod identity;
+pub mod communication;
 pub mod network_communication;
 pub mod notifications;
 pub mod process_manager;
@@ -12,11 +14,15 @@ pub mod resource_monitor;
 pub mod socket_communication;
 pub mod state_persistence;
 pub mod timestamp;
+pub mod version;
 pub mod users;
 
 // tests
 #[path = "../src/tests/encryption_test.rs"]
 mod encryption_test;
+
+#[path = "../src/tests/identity_test.rs"]
+mod identity_test;
 
 #[path = "../src/tests/process_manager_test.rs"]
 mod process_manager_test;

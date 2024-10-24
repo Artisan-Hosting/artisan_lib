@@ -1,14 +1,12 @@
 // resource_monitor.rs
 
 use std::{
-    fs::File,
-    io::{self, Read},
-    thread,
-    time::Duration,
+    collections::HashMap, fs::File, io::{self, Read}, thread, time::Duration
 };
-
-use dusa_collection_utils::rwarc::LockWithTimeout;
+use gethostname::gethostname;
+use dusa_collection_utils::{rwarc::LockWithTimeout, stringy::Stringy};
 use procfs::process::Process;
+use sysinfo::System;
 
 use crate::{log, logger::LogLevel};
 
@@ -133,4 +131,35 @@ impl ResourceMonitor {
 
         Ok(cpu_usage as f32)
     }
+}
+
+// ! LEGACY for welcome
+pub fn get_system_stats() -> HashMap<Stringy, Stringy> {
+    let mut system = System::new_all();
+    system.refresh_all();
+
+    let mut stats: HashMap<Stringy, Stringy> = HashMap::new();
+    stats.insert(
+        Stringy::new("CPU Usage"),
+        Stringy::from_string(format!("{:.2}%", system.global_cpu_usage())),
+    );
+    stats.insert(
+        Stringy::new("Total RAM"),
+        Stringy::from_string(format!("{} MB", system.total_memory() / 1024)),
+    );
+    stats.insert(
+        Stringy::new("Used RAM"),
+        Stringy::from(format!("{} MB", system.used_memory() / 1024000).trim_end_matches('0').to_string()),
+    );
+    stats.insert(
+        Stringy::new("Total Swap"),
+        Stringy::from_string(format!("{} MB", system.total_swap() / 1024)),
+    );
+    stats.insert(
+        Stringy::new("Used Swap"),
+        Stringy::from_string(format!("{} MB", system.used_swap() / 1024000).trim_end_matches('0').to_string()),
+    );
+    stats.insert(Stringy::new("Hostname"), Stringy::from_string(format!("{:?}", gethostname())));
+
+    stats
 }

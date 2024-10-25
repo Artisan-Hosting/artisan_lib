@@ -206,16 +206,16 @@ pub async fn spawn_simple_process(
             Ok(child_process)
         }
         Err(e) => {
-            let err_ref = e.get_ref().unwrap();
+            // let err_ref = e.get_ref().unwrap();
 
             log!(
                 LogLevel::Error,
                 "Failed to spawn child process: {}",
-                err_ref
+                e.to_string()
             );
             let error_item: ErrorArrayItem = ErrorArrayItem::new(
                 dusa_collection_utils::errors::Errors::InputOutput,
-                err_ref.to_string(),
+                e.to_string(),
             );
             log_error(state, error_item, state_path);
             Err(e)

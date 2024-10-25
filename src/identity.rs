@@ -14,7 +14,7 @@ use crate::{
     encryption::encrypt_text, git_actions::GitCredentials, log, logger::LogLevel, network_communication::get_local_ip, timestamp::{current_timestamp, format_unix_timestamp}
 };
 
-pub const IDENTITYPATHSTR: &str = "/usr/local/identity.jais";
+pub const IDENTITYPATHSTR: &str = "/usr/local/identity";
 pub const HASH_LENGTH: usize = 14;
 
 #[derive(Serialize, Deserialize, Debug)]

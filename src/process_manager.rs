@@ -1,6 +1,6 @@
 use dusa_collection_utils::errors::Errors;
 use dusa_collection_utils::rwarc::LockWithTimeout;
-use libc::{c_int, kill, killpg, SIGKILL};
+use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use std::process::Stdio;
@@ -57,11 +57,11 @@ impl SupervisedChild {
         Self { child, monitor }
     }
 
-    pub async fn kill(self) -> Result<(), ErrorArrayItem> {
+    pub async fn kill(&self) -> Result<(), ErrorArrayItem> {
         self.child.kill().await
     }
 
-    pub async fn running(self) -> bool {
+    pub async fn running(&self) -> bool {
         let xid = match self.get_pid().await {
             Ok(xid) => xid,
             Err(_) => return false,
@@ -110,19 +110,10 @@ impl ChildLock {
         };
 
         // Kill the entire process group
-        unsafe {
+        unsafe { // ! this will halt if the pid assigned is too long
             let pgid = xid; // Since we set pgid to pid in pre_exec
-            if killpg(pgid as i32, SIGKILL) == -1 {
-                // apperently in C -1 is the errono ?
-                let err = io::Error::last_os_error();
-                log!(
-                    LogLevel::Error,
-                    "Failed to kill child process group: {}",
-                    err
-                );
-                return Err(ErrorArrayItem::new(Errors::GeneralError, err.to_string()));
-                // log_error(&mut state, error, &state_path);
-            }
+            killpg(pgid as i32, SIGTERM);
+            Self::reap_zombie_process(pgid.try_into().unwrap());
         };
 
         // Wait for a moment to see if the process terminates
@@ -147,7 +138,7 @@ impl ChildLock {
                     }
                 }
                 false => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid PID").into())
+                    return Ok(())
                 }
             }
         } else {

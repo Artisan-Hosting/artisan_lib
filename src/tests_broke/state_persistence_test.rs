@@ -17,8 +17,9 @@ mod tests {
         let app_config: AppConfig = AppConfig {
             app_name: dusa_collection_utils::stringy::Stringy::Mutable("Test app".to_owned()),
             version: serde_json::to_string(&SoftwareVersion::new(env!("CARGO_PKG_VERSION"))).unwrap(),
-            max_connections: 22,
-            environment: "PORT=3306".to_owned(),
+            max_cpu_usage: 0,
+            max_ram_usage: 0,
+            environment: "developer".to_owned(),
             debug_mode: false,
             git: Some(GitConfig {
                 default_server: GitServer::GitHub,
@@ -30,7 +31,9 @@ mod tests {
         };
 
         let state = AppState {
+            name: env!("CARGO_PKG_NAME").to_string(),
             data: String::from("data"),
+            version: SoftwareVersion::dummy(),
             last_updated: 1234567,
             event_counter: 0,
             is_active: true,

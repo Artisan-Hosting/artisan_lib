@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::{communication::{GeneralMessage, MessageType}, socket_communication::{
+    use crate::{communication_struct::{GeneralMessage, MessageType}, socket_communication::{
         get_socket_stream, receive_message, send_acknowledge, send_message, set_socket_ownership,
-    }, version::SoftwareVersion};
+    }};
 
     use dusa_collection_utils::errors::Errors;
     use dusa_collection_utils::stringy::Stringy;

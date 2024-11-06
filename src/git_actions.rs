@@ -111,12 +111,12 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if reading, decrypting, or deserializing fails.
-    pub fn new(file: Option<&PathType>) -> Result<Self, ErrorArrayItem> {
+    pub async fn new(file: Option<&PathType>) -> Result<Self, ErrorArrayItem> {
         match file {
             Some(file) => {
                 if file.exists() {
                     let encrypted_credentials = Self::read_file(file)?;
-                    let decrypted_string = decrypt_text(encrypted_credentials)?.replace('\n', "");
+                    let decrypted_string = decrypt_text(encrypted_credentials).await?.replace('\n', "");
                     let data: GitCredentials = serde_json::from_str(&decrypted_string)?;
                     Ok(data)
                 } else {
@@ -128,7 +128,7 @@ impl GitCredentials {
             }
             None => {
                 let encrypted_credentials = Self::read_file(&PathType::Str(ARTISANCF.into()))?;
-                let decrypted_string = decrypt_text(encrypted_credentials)?.replace('\n', "");
+                let decrypted_string = decrypt_text(encrypted_credentials).await?.replace('\n', "");
                 let data: GitCredentials = serde_json::from_str(&decrypted_string)?;
                 Ok(data)
             }
@@ -144,8 +144,8 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if loading the credentials fails.
-    pub fn new_vec(file: Option<&PathType>) -> Result<Vec<GitAuth>, ErrorArrayItem> {
-        let git_credentials = Self::new(file)?;
+    pub async fn new_vec(file: Option<&PathType>) -> Result<Vec<GitAuth>, ErrorArrayItem> {
+        let git_credentials = Self::new(file).await?;
         Ok(git_credentials.auth_items.clone())
     }
 
@@ -163,7 +163,7 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if serialization, encryption, or file writing fails.
-    pub fn save(&self, file_path: &PathType) -> Result<(), ErrorArrayItem> {
+    pub async fn save(&self, file_path: &PathType) -> Result<(), ErrorArrayItem> {
         // Convert PathType to Path
         let binding = file_path.clone().to_path_buf();
         let path = binding.as_path();
@@ -174,9 +174,7 @@ impl GitCredentials {
         })?;
 
         // Encrypt the JSON data
-        let encrypted_data = encrypt_text(Stringy::new(&json_data)).map_err(|e| {
-            ErrorArrayItem::new(Errors::GeneralError, format!("Encryption error: {:?}", e))
-        })?;
+        let encrypted_data = encrypt_text(Stringy::new(&json_data)).await?;
 
         // Write the encrypted data to the file
         let mut file = OpenOptions::new()
@@ -250,8 +248,8 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if saving new credentials fails.
-    pub fn bootstrap_git_credentials() -> Result<GitCredentials, ErrorArrayItem> {
-        match GitCredentials::new(None) {
+    pub async fn bootstrap_git_credentials() -> Result<GitCredentials, ErrorArrayItem> {
+        match GitCredentials::new(None).await {
             Ok(creds) => Ok(creds),
             Err(_) => {
                 let default_creds = GitCredentials {

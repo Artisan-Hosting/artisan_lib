@@ -4,11 +4,10 @@ use std::{
     collections::HashMap, fs::File, io::{self, Read}, thread, time::Duration
 };
 use gethostname::gethostname;
-use dusa_collection_utils::{rwarc::LockWithTimeout, stringy::Stringy};
+use dusa_collection_utils::{log::LogLevel, log, rwarc::LockWithTimeout, stringy::Stringy};
 use procfs::process::Process;
 use sysinfo::System;
 
-use crate::{log, logger::LogLevel};
 
 pub struct ResourceMonitorLock(LockWithTimeout<ResourceMonitor>);
 
@@ -63,6 +62,7 @@ impl ResourceMonitorLock {
     }
 }
 
+#[derive(Clone)]
 pub struct ResourceMonitor {
     pub pid: i32,
     pub ram: u64,

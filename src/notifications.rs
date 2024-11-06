@@ -3,9 +3,11 @@ use dusa_collection_utils::{
     stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
-use std::{fmt, net::TcpStream};
+use std::fmt;
 
-use crate::{encryption::encrypt_text, network_communication::send_message};
+use crate::{communication_proto::{send_message_tcp, Flags, ProtocolMessage}, encryption::encrypt_text};
+
+const MAIL_ADDRESS: &str = "45.137.192.70:1827";
 
 /// Represents an email message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -50,7 +52,7 @@ impl Email {
 
 impl EmailSecure {
     /// Creates a new EmailSecure instance by encrypting the provided email.
-    pub fn new(email: Email) -> Result<Self, ErrorArrayItem> {
+    pub async fn new(email: Email) -> Result<Self, ErrorArrayItem> {
         if !email.is_valid() {
             return Err(ErrorArrayItem::new(
                 Errors::GeneralError,
@@ -60,20 +62,33 @@ impl EmailSecure {
 
         let plain_email_data: Stringy =
             Stringy::from_string(format!("{}-=-{}", email.subject, email.body));
-        let encrypted_data: Stringy = encrypt_text(plain_email_data)?;
+        let encrypted_data: Stringy = encrypt_text(plain_email_data).await?;
 
         Ok(EmailSecure {
             data: encrypted_data,
         })
     }
 
+    pub fn to_json(&self) -> Result<String, ErrorArrayItem> {
+        serde_json::to_string(self).map_err(|err| ErrorArrayItem::from(err))
+    }
+
     /// Sends the encrypted email data over a TCP stream.
-    pub fn send(&self) -> Result<(), ErrorArrayItem> {
+    pub async fn send(&self) -> Result<(), ErrorArrayItem> {
         // Attempt to connect to the specified address
-        let stream = TcpStream::connect("45.137.192.70:1827")?;
         // let stream = TcpStream::connect("127.0.0.1:1827").map_err(|e| ErrorArrayItem::from(e))?;
 
-        // Use send_message to send self.data
-        send_message(&stream, self.data.as_bytes())
+        let mut message: ProtocolMessage<String> = ProtocolMessage::new(Flags::COMPRESSED | Flags::ENCODED, self.to_json()?)?;
+
+        match send_message_tcp(MAIL_ADDRESS, &mut message).await.map_err(|err| ErrorArrayItem::from(err)) {
+            Ok(status) => match status {
+                crate::communication_proto::ProtocolStatus::Ok => Ok(()),
+                crate::communication_proto::ProtocolStatus::Error => Err(ErrorArrayItem::new(Errors::Protocol, String::from("Failed sending message. Protocol error"))),
+                crate::communication_proto::ProtocolStatus::Waiting => unreachable!(),  // Because this would be an illegal request
+                crate::communication_proto::ProtocolStatus::Other(_) => unreachable!(), // Because this would be an illegal request
+            },
+            Err(error) => Err(error),
+        }
+
     }
 }

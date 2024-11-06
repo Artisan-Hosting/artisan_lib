@@ -3,6 +3,8 @@ use dusa_collection_utils::{
     functions::{create_hash, truncate},
     stringy::Stringy,
     types::PathType,
+    log,
+    log::LogLevel,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -11,7 +13,7 @@ use std::{
 };
 
 use crate::{
-    encryption::encrypt_text, git_actions::GitCredentials, log, logger::LogLevel, network_communication::get_local_ip, timestamp::{current_timestamp, format_unix_timestamp}
+    encryption::encrypt_text, git_actions::GitCredentials, network::get_local_ip, timestamp::{current_timestamp, format_unix_timestamp}
 };
 
 pub const IDENTITYPATHSTR: &str = "/usr/local/identity";
@@ -31,29 +33,29 @@ pub struct IdentityInfo {
 }
 
 impl IdentityInfo {
-    pub fn load() -> Result<Self, ErrorArrayItem> {
-        let identifier: Identifier = Identifier::load()?;
+    pub async fn load() -> Result<Self, ErrorArrayItem> {
+        let identifier: Identifier = Identifier::load().await?;
         let identifier_json: String = identifier.to_json()?;
         let hash: Stringy = Stringy::from_string(truncate(&create_hash(identifier_json.clone()), HASH_LENGTH).to_owned());
-        let encrypted: Stringy = encrypt_text(Stringy::from_string(identifier_json.clone()))?;
+        let encrypted: Stringy = encrypt_text(Stringy::from_string(identifier_json.clone())).await?;
         Ok(Self {
             hash,
             encrypted,
         })
     }
 
-    pub fn new(identity: Identifier) -> Result<Self, ErrorArrayItem> {
-        let encrypted: Stringy = encrypt_text(identity.to_encrypted_json()?)?;
-        let hash: Stringy =
-            Stringy::Immutable(truncate(&create_hash(encrypted.clone().to_string()), HASH_LENGTH).into());
+    // pub fn new(identity: Identifier) -> Result<Self, ErrorArrayItem> {
+    //     let encrypted: Stringy = encrypt_text(identity.to_encrypted_json()?)?;
+    //     let hash: Stringy =
+    //         Stringy::Immutable(truncate(&create_hash(encrypted.clone().to_string()), HASH_LENGTH).into());
 
-        Ok(Self { hash, encrypted })
-    }
+    //     Ok(Self { hash, encrypted })
+    // }
 }
 
 impl Identifier {
     /// loads the identifier from disk, creates a new one if needed 
-    pub fn load() -> Result<Self, ErrorArrayItem> {
+    pub async  fn load() -> Result<Self, ErrorArrayItem> {
         let identifier_path: PathType = PathType::Str(IDENTITYPATHSTR.into());
         match identifier_path.exists() {
             true => {
@@ -61,7 +63,7 @@ impl Identifier {
                     Ok(loaded_data) => loaded_data,
                     Err(err) => {
                         log!(LogLevel::Error, "Error loading identifier: {}, creating new info", err);
-                        let new_identifier: Identifier = Self::new()?;
+                        let new_identifier: Identifier = Self::new().await?;
                         new_identifier.save_to_file()?;
                         new_identifier
                     },
@@ -70,7 +72,7 @@ impl Identifier {
             },
             false => {
                 log!(LogLevel::Warn, "Couldn't load identifier creating new one");
-                let new_identifier: Identifier = Self::new()?;
+                let new_identifier: Identifier = Self::new().await?;
                 new_identifier.save_to_file()?;
                 return Ok(new_identifier)
             },
@@ -78,16 +80,14 @@ impl Identifier {
     }
 
     /// Creates a new identifier based on IP and timestamp
-    pub fn new() -> Result<Self, ErrorArrayItem> {
+    pub async fn new() -> Result<Self, ErrorArrayItem> {
         let address: Ipv4Addr = get_local_ip();
-        let repositories: GitCredentials = match GitCredentials::new(None) {
+        let repositories: GitCredentials = match GitCredentials::new(None).await {
             Ok(git_credentials) => git_credentials,
             Err(e) => {
                 log!(LogLevel::Error, "Couldn't load git credentials");
                 log!(LogLevel::Error, "{}", e);
-                GitCredentials{
-                    auth_items: vec![],
-                }
+                return Err(e)
             },
         };
         let signature: Stringy = Stringy::Immutable(
@@ -124,14 +124,14 @@ impl Identifier {
     }
 
     /// Return the JSON string and then encrypt it
-    pub fn to_encrypted_json(&self) -> Result<Stringy, ErrorArrayItem> {
+    pub async fn to_encrypted_json(&self) -> Result<Stringy, ErrorArrayItem> {
         let json_representation = self.to_json().map_err(|e| {
             ErrorArrayItem::new(
                 dusa_collection_utils::errors::Errors::JsonCreation,
                 e.to_string(),
             )
         })?;
-        let encrypted_data = encrypt_text(Stringy::from_string(json_representation))?;
+        let encrypted_data = encrypt_text(Stringy::from_string(json_representation)).await?;
         Ok(encrypted_data)
     }
 }

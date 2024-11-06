@@ -1,4 +1,5 @@
 use colored::Colorize;
+use dusa_collection_utils::version::SoftwareVersion;
 use serde::{Deserialize, Serialize};
 use std::{fmt, fs};
 
@@ -14,12 +15,20 @@ use crate::{
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct AppState {
-    pub data: String, // General-purpose data field for storing string data
+    // Name of the crate
+    pub name: String,
+
+    // Versions of crate n library
+    pub version: SoftwareVersion,
+
+    // A General-purpose field of semi-persistence data
+    pub data: String,
 
     // The timestamp when the state was last updated
-    pub last_updated: u64, // Unix timestamp in seconds
+    pub last_updated: u64,
 
-    // A counter for tracking the number of times an event has occurred
+    // A counter to show the app isn't deadlocked or stalled. It's ticked at
+    // critical or intense actions in application
     pub event_counter: u32,
 
     // A flag indicating whether the application is in an active state
@@ -95,8 +104,14 @@ impl fmt::Display for AppState {
         writeln!(
             f,
             "    {}: {}",
-            "Max Connections".bold().cyan(),
-            self.config.max_connections
+            "Ram Limit".bold().cyan(),
+            self.config.max_ram_usage
+        )?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "Cpu time limit".bold().cyan(),
+            self.config.max_cpu_usage
         )?;
         writeln!(
             f,
@@ -181,17 +196,18 @@ impl StatePersistence {
         PathType::Content(format!("/tmp/.{}.state", config.app_name))
     }
 
-    pub fn save_state(state: &AppState, path: &PathType) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn save_state(state: &AppState, path: &PathType) -> Result<(), Box<dyn std::error::Error>> {
         let toml_str: Stringy = toml::to_string(state)?.into();
         let state_data = encrypt_text(toml_str)
+            .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg))?;
         fs::write(path, state_data.to_string())?;
         Ok(())
     }
 
-    pub fn load_state(path: &PathType) -> Result<AppState, Box<dyn std::error::Error>> {
+    pub async fn load_state(path: &PathType) -> Result<AppState, Box<dyn std::error::Error>> {
         let encrypted_content: Stringy = fs::read_to_string(path)?.into();
-        let content: Stringy = decrypt_text(encrypted_content).map_err(|_| {
+        let content: Stringy = decrypt_text(encrypted_content).await.map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
         })?;
         let state: AppState = toml::from_str(&content)?;

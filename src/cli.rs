@@ -1,10 +1,14 @@
 use std::io::{self, Write};
 
-use dusa_collection_utils::stringy::Stringy;
+use dusa_collection_utils::{stringy::Stringy, log, log::LogLevel};
+
+use crate::encryption::encrypt_text;
 
 /// Capture user input from the terminal
+/// Returns a `Stringy` item after printing the prompt 
+/// `message: `
 pub fn get_user_input(prompt: &str) -> Stringy {
-    print!("{}", prompt); // Print the prompt message
+    print!("{}: ", prompt); // Print the prompt message
     io::stdout().flush().unwrap(); // Make sure the prompt is printed before user input
 
     let mut input = String::new();
@@ -12,6 +16,20 @@ pub fn get_user_input(prompt: &str) -> Stringy {
         .read_line(&mut input)
         .expect("Failed to read input");
     Stringy::new(input.trim()) // Remove any trailing newline or spaces
+}
+
+/// Capture user input from the terminal and encrypts it
+pub async fn get_encrypted_user_input(prompt: &str) -> Stringy {
+    let user_input: Stringy = get_user_input(prompt);
+    let data = encrypt_text(user_input).await;
+
+    match data {
+        Ok(data) => data,
+        Err(e) => {
+            log!(LogLevel::Error, "{}", e);
+            Stringy::from("")
+        },
+    }
 }
 
 /// Display options and capture the user's selection

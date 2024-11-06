@@ -4,6 +4,7 @@
         "cutime",
         "gethostname",
         "Gitserver",
-        "IDENTITYPATHSTR"
+        "IDENTITYPATHSTR",
+        "killpg"
     ]
 }

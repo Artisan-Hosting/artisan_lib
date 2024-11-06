@@ -1,22 +1,19 @@
 // Frequently used functions
 
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
-    types::PathType,
+    errors::{ErrorArrayItem, Errors}, log::{set_log_level, LogLevel}, log, types::PathType
 };
 
 use crate::{
-    log,
-    logger::{set_log_level, LogLevel},
     state_persistence::{AppState, StatePersistence},
     timestamp::current_timestamp,
 };
 
 // Update state and persist it to disk
-pub fn update_state(state: &mut AppState, path: &PathType) {
+pub async fn update_state(state: &mut AppState, path: &PathType) {
     state.last_updated = current_timestamp();
     state.event_counter += 1;
-    if let Err(err) = StatePersistence::save_state(state, path) {
+    if let Err(err) = StatePersistence::save_state(state, path).await {
         log!(LogLevel::Error, "Failed to save state: {}", err);
         state.is_active = false;
         state.error_log.push(ErrorArrayItem::new(

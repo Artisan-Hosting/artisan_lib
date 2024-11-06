@@ -1,15 +1,11 @@
 use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
-use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy, types::PathType};
+use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy, types::PathType, version::SoftwareVersion};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 
-use crate::{
-    git_actions::GitServer,
-    logger::LogLevel,
-    version::SoftwareVersion,
-};
+use crate::git_actions::GitServer;
 
 /// Represents the application's configuration settings.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -20,8 +16,14 @@ pub struct AppConfig {
     /// Version of the application.
     pub version: String,
 
-    /// Maximum allowed number of connections or some other resource limit.
-    pub max_connections: u32,
+    /// Maximum ram usage in MB
+    pub max_ram_usage: usize,
+
+    /// Maximum cpu time usage
+    /// This would be practically be used to restart a service
+    /// when it gets to it's aloted cpu time. A pricing scale be
+    /// set like this.
+    pub max_cpu_usage: usize,
 
     /// The environment the application is running in (e.g., development, staging, production).
     pub environment: String,
@@ -96,13 +98,17 @@ impl AppConfig {
             // Set default values.
             .set_default("app_name", "MyApp")?
             .set_default("version", version)?
-            .set_default("max_connections", 100)?
+            .set_default("max_cpu_usage", 0)?
+            .set_default("max_ram_usage", 1024)?
+            // .set_default("max_connections", 100)?
             .set_default("environment", "development")?
             .set_default("debug_mode", false)?
             .set_default("log_level", "Info")?
-            .set_default("git.default_server", "GitHub")?
-            .set_default("git.credentials_file", "/opt/artisan/artisan.cf")?
-            .set_default("git.ssh_key_path", None::<String>)?
+            .set_default("git", None::<String>)?
+
+            // .set_default("git.default_server", "GitHub")?
+            // .set_default("git.credentials_file", "/opt/artisan/artisan.cf")?
+            // .set_default("git.ssh_key_path", None::<String>)?
             // Set defaults for optional database configuration.
             .set_default("database.url", "postgres://user:password@localhost/dbname")?
             .set_default("database.pool_size", 10)?;
@@ -137,8 +143,11 @@ impl AppConfig {
     ///
     /// Returns a `String` with an error message if validation fails.
     pub fn validate(&self) -> Result<(), String> {
-        if self.max_connections == 0 {
-            return Err("max_connections must be greater than 0".into());
+        if self.max_cpu_usage.lt(&10) {
+            return Err("The cpu time won't allow the program to run".into());
+        }
+        if self.max_cpu_usage.lt(&0) {
+            return Err("Ram limit can't be less that 0".into());
         }
         if <std::option::Option<GitConfig> as Clone>::clone(&self.git)
             .unwrap()
@@ -172,8 +181,14 @@ impl fmt::Display for AppConfig {
         writeln!(
             f,
             "  {}: {}",
-            "Max Connections".bold().cyan(),
-            self.max_connections
+            "Ram Limit".bold().cyan(),
+            self.max_ram_usage
+        )?;
+        writeln!(
+            f,
+            "  {}: {}",
+            "Cpu time limit".bold().cyan(),
+            self.max_cpu_usage
         )?;
         writeln!(f, "  {}: {}", "Environment".bold().cyan(), self.environment)?;
         writeln!(

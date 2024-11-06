@@ -1,9 +1,12 @@
 use dusa_collection_utils::errors::Errors;
+use dusa_collection_utils::log;
+use dusa_collection_utils::log::LogLevel;
 use dusa_collection_utils::rwarc::LockWithTimeout;
 use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{io, thread};
 use tokio::process::{Child, Command};
@@ -11,8 +14,6 @@ use tokio::process::{Child, Command};
 use crate::resource_monitor::ResourceMonitorLock;
 use crate::{
     common::{log_error, update_state},
-    log,
-    logger::LogLevel,
     state_persistence::AppState,
 };
 use dusa_collection_utils::{errors::ErrorArrayItem, types::PathType};
@@ -93,7 +94,11 @@ impl ChildLock {
     }
 
     pub fn clone(&self) -> Self {
-        ChildLock(self.0.clone())
+        let data = self;
+        let child = &data.0;
+        let lock_clone = child.clone();
+        let cloned_child_lock = ChildLock{0: lock_clone};
+        cloned_child_lock
     }
 
     pub async fn kill(&self) -> Result<(), ErrorArrayItem> {
@@ -110,7 +115,8 @@ impl ChildLock {
         };
 
         // Kill the entire process group
-        unsafe { // ! this will halt if the pid assigned is too long
+        unsafe {
+            // ! this will halt if the pid assigned is too long
             let pgid = xid; // Since we set pgid to pid in pre_exec
             killpg(pgid as i32, SIGTERM);
             Self::reap_zombie_process(pgid.try_into().unwrap());
@@ -137,9 +143,7 @@ impl ChildLock {
                         return Ok(());
                     }
                 }
-                false => {
-                    return Ok(())
-                }
+                false => return Ok(()),
             }
         } else {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid PID").into());

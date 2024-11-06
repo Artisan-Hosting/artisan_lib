@@ -4,18 +4,16 @@ pub mod common;
 pub mod config;
 pub mod encryption;
 pub mod git_actions;
-pub mod logger;
 pub mod identity;
-pub mod communication;
-pub mod network_communication;
+pub mod communication_struct;
 pub mod notifications;
 pub mod process_manager;
 pub mod resource_monitor;
-pub mod socket_communication;
 pub mod state_persistence;
 pub mod timestamp;
-pub mod version;
 pub mod users;
+pub mod communication_proto;
+pub mod network;
 
 // tests
 #[path = "../src/tests/encryption_test.rs"]

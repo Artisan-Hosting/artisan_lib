@@ -1,15 +1,16 @@
 use bincode;
+use colored::{Color, Colorize};
 use dusa_collection_utils::{errors::ErrorArrayItem, log, log::LogLevel};
-// use dusa_collection_utils::version::Version;
-// For serialization/deserialization
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use serde::{Deserialize, Serialize};
-// use serde_derive::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
-    fmt::Debug,
+    fmt::{self, Debug},
     io::{self, Cursor, Read, Write},
-    net::{TcpListener, TcpStream},
-    os::unix::net::{UnixListener, UnixStream},
+    vec,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
 };
 
 use crate::{
@@ -17,34 +18,68 @@ use crate::{
     network::{get_header_version, get_local_ip},
 };
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub enum ProtocolStatus {
-    Ok,
+const HEADER_VERSION_LEN: usize = 1; // u8
+const HEADER_FLAGS_LEN: usize = 1; // u8
+const HEADER_PAYLOAD_LENGTH_LEN: usize = 2; // u16
+const HEADER_RESERVED_LEN: usize = 1; // u8
+const HEADER_STATUS_LEN: usize = 1; // u8 for ProtocolStatus
+const HEADER_ORIGIN_ADDRESS_LEN: usize = 4; // [u8; 4] for IPv4 address
 
-    Error,
-    Waiting,
-    Other(u8), // For extensibility, allows future custom statuses
-}
+// Calculate the fixed header length
+pub const HEADER_LENGTH: usize = HEADER_VERSION_LEN
+    + HEADER_FLAGS_LEN
+    + HEADER_PAYLOAD_LENGTH_LEN
+    + HEADER_RESERVED_LEN
+    + HEADER_STATUS_LEN
+    + HEADER_ORIGIN_ADDRESS_LEN;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProtocolHeader {
-    pub version: u16,
-    pub flags: u16,
-    pub payload_length: u32,
-    pub reserved: u16,
-    pub status: ProtocolStatus,
-    pub origin_address: Option<String>,
-}
+pub const EOL: &str = "-EOL-";
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProtocolMessage<T> {
-    pub header: ProtocolHeader,
-    pub payload: T,
-}
-
-// Define flags
 bitflags::bitflags! {
-    pub struct Flags: u16 {
+    #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+    pub struct ProtocolStatus: u8 {
+        const OK        = 0b0000_0001;
+        const ERROR     = 0b0000_0010;
+        const WAITING   = 0b0000_0100;
+        const TIMEDOUT  = 0b0000_1000;
+        const MALFORMED = 0b0001_0000;
+        const RESERVED  = 0b0010_0000;
+        // Add other statuses as needed up to 8 bits
+    }
+}
+
+impl ProtocolStatus {
+    fn get_status_color(&self) -> Color {
+        match *self {
+            ProtocolStatus::OK => Color::Green,
+            ProtocolStatus::ERROR => Color::Red,
+            ProtocolStatus::WAITING => Color::Yellow,
+            ProtocolStatus::RESERVED => Color::Blue,
+            ProtocolStatus::TIMEDOUT => Color::BrightYellow,
+            ProtocolStatus::MALFORMED => Color::BrightYellow,
+            _ => Color::White,
+        }
+    }
+}
+
+impl fmt::Display for ProtocolStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let status_description = match *self {
+            ProtocolStatus::OK => "OK",
+            ProtocolStatus::ERROR => "Error",
+            ProtocolStatus::WAITING => "Waiting",
+            ProtocolStatus::RESERVED => "Reserved",
+            ProtocolStatus::TIMEDOUT => "Timed Out",
+            ProtocolStatus::MALFORMED => "Malformed Response",
+            _ => "Unknown",
+        };
+        write!(f, "{}", status_description.color(self.get_status_color()))
+    }
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+    pub struct Flags: u8 {
         const NONE       = 0b0000_0000;
         const COMPRESSED = 0b0000_0001;
         const ENCRYPTED  = 0b0000_0010;
@@ -54,103 +89,255 @@ bitflags::bitflags! {
     }
 }
 
+impl fmt::Display for Flags {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut flags = vec![];
+        if self.contains(Flags::COMPRESSED) {
+            flags.push("Compressed".cyan().to_string());
+        }
+        if self.contains(Flags::ENCRYPTED) {
+            flags.push("Encrypted".magenta().to_string());
+        }
+        if self.contains(Flags::ENCODED) {
+            flags.push("Encoded".blue().to_string());
+        }
+        if self.contains(Flags::RESERVED) {
+            flags.push("Reserved".yellow().to_string());
+        }
+        write!(f, "{}", flags.join(", "))
+    }
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+    pub struct Reserved: u8 {
+        const NONE       = 0b0000_0000;
+        // Add other flags as needed
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProtocolHeader {
+    pub version: u8,
+    pub flags: u8,
+    pub payload_length: u16,
+    pub reserved: u8,
+    pub status: u8, // Changed from u16 to u8
+    pub origin_address: [u8; 4],
+}
+
+impl fmt::Display for ProtocolHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}\n{}\n{}\n{}\n{}\n{}\n",
+            format!("Version:          {}", self.version).bold().green(),
+            format!(
+                "Flags:            {:#010b} ({})",
+                self.flags,
+                Flags::from_bits_truncate(self.flags)
+            )
+            .bold()
+            .blue(),
+            format!("Payload Length:   {}", self.payload_length)
+                .bold()
+                .purple(),
+            format!("Reserved:         {:#010b}", self.reserved)
+                .bold()
+                .yellow(),
+            format!(
+                "Status:           {:#010b} ({})",
+                self.status,
+                ProtocolStatus::from_bits_truncate(self.status)
+            )
+            .bold()
+            .red(),
+            format!("Origin Address:   {}", self.get_origin_ip())
+                .bold()
+                .cyan(),
+        )
+    }
+}
+
+impl ProtocolHeader {
+    pub fn get_origin_ip(&self) -> std::net::Ipv4Addr {
+        std::net::Ipv4Addr::from(self.origin_address)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProtocolMessage<T> {
+    pub header: ProtocolHeader,
+    pub payload: T,
+}
+
 impl<T> ProtocolMessage<T>
 where
-    T: Serialize + for<'a> Deserialize<'a>,
+    T: Serialize + for<'a> Deserialize<'a> + std::fmt::Debug,
 {
     // Create a new protocol message
     pub fn new(flags: Flags, payload: T) -> io::Result<Self> {
+        let origin_address = get_local_ip().octets();
+
+        // This is to be removed when reserved has been
+        // assigned
+        let reserved = Reserved::NONE;
+
         let header = ProtocolHeader {
             version: get_header_version(),
             flags: flags.bits(),
             payload_length: 0, // Will be set in to_bytes
-            reserved: 0,
-            status: ProtocolStatus::Ok,
-            origin_address: Some(get_local_ip().to_string()),
+            reserved: reserved.bits(),
+            status: ProtocolStatus::OK.bits(), // Set initial status
+            origin_address,
         };
 
         Ok(Self { header, payload })
     }
 
-    // Serialize the message into bytes with optional compression
+    // Standardized order of processing flags: Compression -> Encoding -> Encryption
+    fn ordered_flags() -> Vec<Flags> {
+        vec![Flags::COMPRESSED, Flags::ENCODED, Flags::ENCRYPTED]
+    }
+
     pub async fn to_bytes(&mut self) -> io::Result<Vec<u8>> {
+        log!(LogLevel::Trace, "Starting to_bytes conversion.");
+
+        // Serialize and process payload
         let mut payload_bytes = bincode::serialize(&self.payload)
             .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
 
-        if Flags::from_bits_truncate(self.header.flags).contains(Flags::ENCRYPTED) {
-            payload_bytes = encrypt_data(&payload_bytes)
-                .await
-                .uf_unwrap()
-                .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
-            log!(LogLevel::Trace, "Encryption Bit Set");
+        let flags = Flags::from_bits_truncate(self.header.flags);
+        for flag in Self::ordered_flags() {
+            if flags.contains(flag.clone()) {
+                payload_bytes = match flag {
+                    Flags::COMPRESSED => compress_data(&payload_bytes)?,
+                    Flags::ENCODED => encode_data(&payload_bytes),
+                    Flags::ENCRYPTED => encrypt_data(&payload_bytes).await.unwrap(),
+                    _ => payload_bytes,
+                };
+            }
         }
 
-        if Flags::from_bits_truncate(self.header.flags).contains(Flags::ENCODED) {
-            payload_bytes = encode_data(&payload_bytes);
-            log!(LogLevel::Trace, "Encoding Bit Set");
-        }
+        // Set payload length after transformations
+        self.header.payload_length = payload_bytes.len() as u16;
 
-        if Flags::from_bits_truncate(self.header.flags).contains(Flags::COMPRESSED) {
-            payload_bytes = compress_data(&payload_bytes)?;
-            log!(LogLevel::Trace, "Compression Bit Set");
-        }
+        // Manually serialize the header fields into a fixed-size buffer
+        let mut header_bytes: Vec<u8> = Vec::with_capacity(HEADER_LENGTH);
+        header_bytes.extend(&self.header.version.to_be_bytes());
+        header_bytes.extend(&self.header.flags.to_be_bytes());
+        header_bytes.extend(&self.header.payload_length.to_be_bytes());
+        header_bytes.extend(&self.header.reserved.to_be_bytes());
+        header_bytes.extend(&self.header.status.to_be_bytes()); // Updated
+        header_bytes.extend(&self.header.origin_address);
+        log!(LogLevel::Trace, "Generated header \n{}", self.header);
+        log!(
+            LogLevel::Trace,
+            "Generated header bytes \n{:?}",
+            header_bytes
+        );
 
-        // Update the payload_length in the header
-        self.header.payload_length = payload_bytes.len() as u32;
-
-        // Serialize the updated header
-        let header_bytes = bincode::serialize(&self.header)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
-
-        let mut buffer = Vec::new();
+        // Combine header and payload
+        let mut buffer = Vec::with_capacity(HEADER_LENGTH + payload_bytes.len());
         buffer.extend(header_bytes);
         buffer.extend(payload_bytes);
+
         Ok(buffer)
     }
 
-    // Deserialize a message from bytes, decompress if needed
     pub async fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
-        let mut cursor = Cursor::new(bytes);
-        log!(LogLevel::Debug, "Message length received: {}", bytes.len());
+        log!(LogLevel::Trace, "Starting from_bytes conversion.");
 
-        // Deserialize the header
-        let header: ProtocolHeader = bincode::deserialize_from(&mut cursor).map_err(|err| {
+        if bytes.len() < HEADER_LENGTH {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Byte array too short to contain valid header",
+            ));
+        }
+
+        // remove eof
+
+        let header_bytes: &[u8] = &bytes[..HEADER_LENGTH];
+        let payload_bytes: &[u8] = &bytes[HEADER_LENGTH..];
+
+        log!(
+            LogLevel::Trace,
+            "Received header bytes \n{:?}",
+            header_bytes
+        );
+
+        // Manually deserialize the header fields
+        let mut cursor = Cursor::new(header_bytes);
+
+        let mut version_bytes: [u8; 1] = [0u8; 1];
+        read_with_std_io(&mut cursor, &mut version_bytes)?;
+        let version = u8::from_be_bytes(version_bytes);
+
+        let mut flags_bytes: [u8; 1] = [0u8; 1];
+        read_with_std_io(&mut cursor, &mut flags_bytes)?;
+        let flags = u8::from_be_bytes(flags_bytes);
+
+        let mut payload_length_bytes: [u8; 2] = [0u8; 2];
+        read_with_std_io(&mut cursor, &mut payload_length_bytes)?;
+        let payload_length = u16::from_be_bytes(payload_length_bytes);
+
+        let mut reserved_bytes: [u8; 1] = [0u8; 1];
+        read_with_std_io(&mut cursor, &mut reserved_bytes)?;
+        let reserved = u8::from_be_bytes(reserved_bytes);
+
+        let mut status_byte: [u8; 1] = [0u8; 1];
+        // cursor.clone().read_exact(&mut status_byte)?;
+        read_with_std_io(&mut cursor, &mut status_byte)?;
+        let status_bits: u8 = u8::from_be_bytes(status_byte);
+        let status: ProtocolStatus = ProtocolStatus::from_bits_truncate(status_bits);
+
+        let mut origin_address: [u8; 4] = [0u8; 4];
+        read_with_std_io(&mut cursor, &mut origin_address)?;
+        // cursor.read_exact(&mut origin_address)?;
+
+        let header: ProtocolHeader = ProtocolHeader {
+            version,
+            flags,
+            payload_length,
+            reserved,
+            status: status.bits(),
+            origin_address,
+        };
+        log!(LogLevel::Trace, "Recieved header \n{}", header);
+
+        // Validate header fields
+        if header.reserved != Reserved::NONE.bits() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Reserved field must be zero",
+            ));
+        } else {
+            log!(
+                LogLevel::Trace,
+                "Reserved bits check: OK: {:#?}",
+                header.reserved
+            );
+        }
+
+        // Deserialize and process payload
+        let mut payload = payload_bytes.to_vec();
+        let flags = Flags::from_bits_truncate(header.flags);
+        for flag in Self::ordered_flags().iter().rev() {
+            if flags.contains(*flag) {
+                payload = match flag {
+                    &Flags::ENCRYPTED => decrypt_data(&payload).await.unwrap(),
+                    &Flags::ENCODED => decode_data(&payload).unwrap(),
+                    &Flags::COMPRESSED => decompress_data(&payload)?,
+                    &Flags::NONE => payload,
+                    _ => unreachable!(),
+                };
+            }
+        }
+
+        let payload: T = bincode::deserialize(&payload).map_err(|err| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Header deserialization error: {}", err),
-            )
-        })?;
-
-        // Read the payload bytes
-        let mut payload_bytes = vec![0u8; header.payload_length as usize];
-        cursor.read_exact(&mut payload_bytes)?;
-
-        if Flags::from_bits_truncate(header.flags).contains(Flags::ENCRYPTED) {
-            payload_bytes = decrypt_data(&payload_bytes)
-                .await
-                .uf_unwrap()
-                .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
-            log!(LogLevel::Trace, "Encryption Bit Set");
-        }
-
-        if Flags::from_bits_truncate(header.flags).contains(Flags::ENCODED) {
-            payload_bytes = decode_data(&payload_bytes)
-                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
-        }
-
-        if Flags::from_bits_truncate(header.flags).contains(Flags::COMPRESSED) {
-            payload_bytes = decompress_data(&payload_bytes).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Decompression error: {}", err),
-                )
-            })?;
-        }
-
-        let payload: T = bincode::deserialize(&payload_bytes).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Payload deserialization error: {}", err),
+                format!("Payload error: {}", err),
             )
         })?;
 
@@ -186,118 +373,182 @@ pub fn decode_data(data: &[u8]) -> Result<Vec<u8>, ErrorArrayItem> {
     hex::decode(hex_string).map_err(|err| ErrorArrayItem::from(err))
 }
 
-// TCP communications
-pub async fn send_message_tcp<T: serde::Serialize>(
-    address: &str,
+pub async fn send_message_tcp<T>(
+    stream: &mut TcpStream,
     message: &mut ProtocolMessage<T>,
 ) -> io::Result<ProtocolStatus>
 where
-    T: for<'de> Deserialize<'de>,
+    T: serde::Serialize + DeserializeOwned + std::fmt::Debug,
 {
-    let mut stream = TcpStream::connect(address)?;
-    let serialized_data = message.to_bytes().await?;
+    // Serialize the message data
+    let mut serialized_data = message.to_bytes().await?;
+    // Adding the EOL
+    serialized_data.append(&mut EOL.as_bytes().to_vec());
 
-    // Send the data over the stream
-    stream.write_all(&serialized_data)?;
-    log!(LogLevel::Trace, "Message sent to {}", address);
+    // Send the data asynchronously
+    stream.write_all(&serialized_data).await?;
+    stream.flush().await?;
+    log!(
+        LogLevel::Trace,
+        "Message sent to {:#?}",
+        stream.peer_addr().unwrap()
+    );
 
-    // Wait for a response to check if it succeeded or failed
-    let mut response_buffer = Vec::new();
-    stream.read_to_end(&mut response_buffer)?;
+    // Timeout duration for receiving a response
+    let mut response_buffer: Vec<u8> = vec![0u8; 10]; // Adjust this as necessary if response size differs
 
-    let response: ProtocolMessage<()> = ProtocolMessage::from_bytes(&response_buffer).await?;
-    Ok(response.header.status)
+    // Read the response data with a timeout
+    log!(LogLevel::Trace, "Reading response data...");
+    let bytes_received: usize = match stream.read_exact(&mut response_buffer).await {
+        Ok(num) => num,
+        Err(err) => match err.kind() {
+            io::ErrorKind::UnexpectedEof => return Ok(ProtocolStatus::MALFORMED),
+            _ => return Err(err),
+        },
+    };
+
+    if bytes_received == 0 {
+        log!(LogLevel::Error, "Invalid response data recieved");
+        stream.shutdown().await?;
+        return Ok(ProtocolStatus::TIMEDOUT);
+    }
+
+    let response: ProtocolMessage<()> = ProtocolMessage::<()>::from_bytes(&response_buffer).await?;
+    let response_status: ProtocolStatus =
+        ProtocolStatus::from_bits_truncate(response.header.status);
+
+    stream.shutdown().await?;
+
+    return Ok(response_status);
 }
 
-pub async fn receive_message_tcp<T>(address: &str) -> io::Result<ProtocolMessage<T>>
+pub async fn receive_message_tcp<T>(stream: &mut TcpStream) -> io::Result<ProtocolMessage<T>>
 where
     T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize,
 {
-    let listener = TcpListener::bind(address)?;
+    let mut buffer: Vec<u8> = read_until(stream, EOL.as_bytes().to_vec()).await?;
+    stream.flush().await?;
 
-    for stream in listener.incoming() {
-        let mut stream = stream?;
-        let mut buffer = Vec::new();
-
-        stream.read_to_end(&mut buffer)?;
-
-        match ProtocolMessage::from_bytes(&buffer).await {
-            Ok(message) => {
-                log!(LogLevel::Trace, "Message received: {:?}", message);
-                // Respond with a status message to acknowledge success
-                let mut response = ProtocolMessage {
-                    header: ProtocolHeader {
-                        version: get_header_version(),
-                        flags: 0,
-                        payload_length: 0,
-                        reserved: 0,
-                        status: ProtocolStatus::Ok,
-                        origin_address: Some(get_local_ip().to_string()), // Indicating the success of receiving and parsing
-                    },
-                    payload: (),
-                };
-                let response_bytes = response.to_bytes().await?;
-                stream.write_all(&response_bytes)?;
-                return Ok(message);
-            }
-            Err(err) => {
-                log!(LogLevel::Error, "Deserialization error: {}", err);
-                // Respond with an error status if deserialization fails
-                let mut error_response = ProtocolMessage {
-                    header: ProtocolHeader {
-                        version: get_header_version(),
-                        flags: 0,
-                        payload_length: 0,
-                        reserved: 0,
-                        status: ProtocolStatus::Error,
-                        origin_address: Some(get_local_ip().to_string()),
-                    },
-                    payload: (),
-                };
-                let error_bytes = error_response.to_bytes().await?;
-                stream.write_all(&error_bytes)?;
-                return Err(err);
-            }
-        }
+    if let Some(pos) = buffer
+        .windows(EOL.len())
+        .rposition(|window| window == EOL.as_bytes())
+    {
+        buffer.truncate(pos);
     }
 
-    Err(io::Error::new(io::ErrorKind::Other, "No message received"))
+    // log!(LogLevel::Info, "Recieved Buffer: {:#?}", buffer);
+
+    match ProtocolMessage::<T>::from_bytes(&buffer).await {
+        Ok(message) => {
+            log!(LogLevel::Debug, "Received message: {:?}", message);
+            let mut response: ProtocolMessage<()> = ProtocolMessage::new(Flags::COMPRESSED, ()).unwrap();
+            response.header.status = ProtocolStatus::OK.bits();
+            response.header.reserved = Reserved::NONE.bits();
+
+            // Connect to the server asynchronously
+            let serialized_data = response.to_bytes().await?;
+
+            // Send the length prefix and the data asynchronously
+            let scratch = stream.try_write(&serialized_data)?;
+            log!(LogLevel::Info, "Response bytes sent: {scratch}");
+            stream.flush().await?;
+
+            Ok(message)
+        }
+        Err(e) => {
+            log!(LogLevel::Error, "Deserialization error: {}", e);
+            let mut error_response = ProtocolMessage::new(Flags::ENCODED, ()).unwrap();
+            error_response.header.status = 0b0000_0010;
+            let error = error_response.to_bytes().await?;
+            stream.write_all(&error).await?;
+            stream.flush().await?;
+            stream.shutdown().await?;
+
+            return Err(io::Error::new(io::ErrorKind::InvalidData, e));
+        }
+    }
 }
 
-// Socket communications
-pub async fn send_message_unix<T: serde::Serialize>(
-    path: &str,
-    message: &mut ProtocolMessage<T>,
-) -> io::Result<()>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    let mut stream = UnixStream::connect(path)?;
-    let serialized_data = message.to_bytes().await?;
+// // Socket communications
+// pub async fn send_message_unix<T: serde::Serialize>(
+//     path: &str,
+//     message: &mut ProtocolMessage<T>,
+// ) -> io::Result<()>
+// where
+//     T: for<'de> Deserialize<'de>,
+// {
+//     let mut stream = UnixStream::connect(path).await?;
+//     let serialized_data = message.to_bytes().await?;
 
-    // Send the data over the Unix socket
-    stream.write_all(&serialized_data)?;
-    log!(LogLevel::Trace, "Message sent to Unix socket at {}", path);
+//     // Send the data over the Unix socket
+//     stream.write_all(&serialized_data).await?;
+//     log!(LogLevel::Trace, "Message sent to Unix socket at {}", path);
+//     Ok(())
+// }
+
+// pub async fn receive_message_unix<T>(path: &str) -> io::Result<ProtocolMessage<T>>
+// where
+//     T: serde::de::DeserializeOwned + serde::Serialize + Debug,
+// {
+//     // Use Tokio's async UnixListener
+//     let listener = UnixListener::bind(path)?;
+
+//     loop {
+//         // Accept a new incoming connection
+//         let (mut stream, _) = listener.accept().await?;
+
+//         let mut buffer = Vec::new();
+
+//         // Read the incoming data into the buffer
+//         stream.read_to_end(&mut buffer).await?;
+//         let message: ProtocolMessage<T> = ProtocolMessage::from_bytes(&buffer).await?;
+
+//         log!(LogLevel::Trace, "Message received: {:?}", message);
+//         return Ok(message);
+//     }
+// }
+
+// Helpers
+fn read_with_std_io<R: Read>(reader: &mut R, buffer: &mut [u8]) -> io::Result<()> {
+    reader.read_exact(buffer)?;
     Ok(())
 }
 
-pub async fn receive_message_unix<T>(path: &str) -> io::Result<ProtocolMessage<T>>
-where
-    T: serde::de::DeserializeOwned + serde::Serialize + Debug,
-{
-    let listener = UnixListener::bind(path)?;
+pub async fn read_with_tokio_io<R: AsyncReadExt + Unpin>(
+    reader: &mut R,
+    buffer: &mut Vec<u8>,
+) -> io::Result<()> {
+    reader.read_to_end(buffer).await?;
+    Ok(())
+}
 
-    for stream in listener.incoming() {
-        let mut stream = stream?;
-        let mut buffer = Vec::new();
+pub async fn read_until(stream: &mut TcpStream, delimiter: Vec<u8>) -> io::Result<Vec<u8>> {
+    let mut result_buffer: Vec<u8> = Vec::new();
+    let delimiter_len = delimiter.len();
 
-        // Read the incoming data into the buffer
-        stream.read_to_end(&mut buffer)?;
-        let message: ProtocolMessage<T> = ProtocolMessage::from_bytes(&buffer).await?;
+    loop {
+        // Buffer for reading a single byte at a time
+        let mut byte = [0u8];
 
-        log!(LogLevel::Trace, "Message received: {:?}", message);
-        return Ok(message);
+        // Read one byte
+        let bytes_read = stream.read(&mut byte).await?;
+        if bytes_read == 0 {
+            // End of stream reached without finding the delimiter
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Delimiter not found",
+            ));
+        }
+
+        // Append the byte to the result buffer
+        result_buffer.push(byte[0]);
+
+        // Check if the end of result_buffer matches the delimiter
+        if result_buffer.len() >= delimiter_len
+            && result_buffer[result_buffer.len() - delimiter_len..] == delimiter[..]
+        {
+            // Found the delimiter; return the buffer up to (and including) it
+            return Ok(result_buffer);
+        }
     }
-
-    Err(io::Error::new(io::ErrorKind::Other, "No message received"))
 }

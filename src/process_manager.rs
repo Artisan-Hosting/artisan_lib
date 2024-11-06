@@ -6,7 +6,6 @@ use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::time::Duration;
 use std::{io, thread};
 use tokio::process::{Child, Command};
@@ -197,7 +196,7 @@ pub async fn spawn_simple_process(
             );
             state.data = String::from("Process spawned");
             state.event_counter += 1;
-            update_state(state, state_path);
+            update_state(state, state_path).await;
             Ok(child_process)
         }
         Err(e) => {
@@ -212,7 +211,7 @@ pub async fn spawn_simple_process(
                 dusa_collection_utils::errors::Errors::InputOutput,
                 e.to_string(),
             );
-            log_error(state, error_item, state_path);
+            log_error(state, error_item, state_path).await;
             Err(e)
         }
     };

@@ -1,13 +1,8 @@
 use bincode;
-use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors, UnifiedResult},
-    log,
-    log::LogLevel,
-};
+use dusa_collection_utils::{errors::ErrorArrayItem, log, log::LogLevel};
 // use dusa_collection_utils::version::Version;
 // For serialization/deserialization
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use recs::{decrypt_raw, encrypt_raw, initialize};
 use serde::{Deserialize, Serialize};
 // use serde_derive::{Deserialize, Serialize};
 use std::{
@@ -17,7 +12,10 @@ use std::{
     os::unix::net::{UnixListener, UnixStream},
 };
 
-use crate::{encryption::{decrypt_data, encrypt_data}, network::{get_header_version, get_local_ip}};
+use crate::{
+    encryption::{decrypt_data, encrypt_data},
+    network::{get_header_version, get_local_ip},
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum ProtocolStatus {
@@ -176,8 +174,6 @@ pub fn decompress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     Ok(decompressed_data)
 }
 
-
-
 pub fn encode_data(data: &[u8]) -> Vec<u8> {
     // Encode the data into a hex string and convert it into bytes
     hex::encode(data).into_bytes()
@@ -267,7 +263,6 @@ where
 
     Err(io::Error::new(io::ErrorKind::Other, "No message received"))
 }
-
 
 // Socket communications
 pub async fn send_message_unix<T: serde::Serialize>(

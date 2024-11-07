@@ -172,7 +172,7 @@ impl AppConfig {
 
 impl fmt::Display for AppConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let version = self.get_version().unwrap();
+        let version = self.get_version().unwrap_or(SoftwareVersion::dummy());
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
         writeln!(f, "  {}: {}", "Application Version".bold().cyan(), version.application)?;

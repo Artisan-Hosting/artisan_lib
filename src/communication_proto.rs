@@ -242,12 +242,7 @@ where
         header_bytes.extend(&self.header.reserved.to_be_bytes());
         header_bytes.extend(&self.header.status.to_be_bytes()); // Updated
         header_bytes.extend(&self.header.origin_address);
-        log!(LogLevel::Trace, "Generated header \n{}", self.header);
-        log!(
-            LogLevel::Trace,
-            "Generated header bytes \n{:?}",
-            header_bytes
-        );
+        log!(LogLevel::Debug, "Generated header \n{}", self.header);
 
         // Combine header and payload
         let mut buffer = Vec::with_capacity(HEADER_LENGTH + payload_bytes.len());
@@ -272,11 +267,6 @@ where
         let header_bytes: &[u8] = &bytes[..HEADER_LENGTH];
         let payload_bytes: &[u8] = &bytes[HEADER_LENGTH..];
 
-        log!(
-            LogLevel::Trace,
-            "Received header bytes \n{:?}",
-            header_bytes
-        );
 
         // Manually deserialize the header fields
         let mut cursor = Cursor::new(header_bytes);
@@ -315,7 +305,7 @@ where
             status: status.bits(),
             origin_address,
         };
-        log!(LogLevel::Trace, "Recieved header \n{}", header);
+        log!(LogLevel::Debug, "Recieved header \n{}", header);
 
         // Validate header fields
         if header.reserved != Reserved::NONE.bits() {
@@ -478,7 +468,7 @@ where
 
     match ProtocolMessage::<T>::from_bytes(&buffer).await {
         Ok(message) => {
-            log!(LogLevel::Debug, "Received message: {:?}", message);
+            log!(LogLevel::Trace, "Received message: {:?}", message);
             let mut response: ProtocolMessage<()> = ProtocolMessage::new(Flags::NONE, ()).unwrap();
             response.header.status = ProtocolStatus::OK.bits();
             response.header.reserved = Reserved::NONE.bits();
@@ -488,7 +478,8 @@ where
 
             // Send the length prefix and the data asynchronously
             let scratch = stream.try_write(&serialized_data)?;
-            log!(LogLevel::Info, "Response bytes sent: {scratch}");
+            log!(LogLevel::Trace, "Response bytes sent: {scratch}");
+            log!(LogLevel::Debug, "Sent header: {}", response.header);
             stream.flush().await?;
 
             Ok(message)

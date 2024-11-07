@@ -3,6 +3,7 @@ use colored::{Color, Colorize};
 use dusa_collection_utils::{errors::ErrorArrayItem, log, log::LogLevel};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     fmt::{self, Debug},
     io::{self, Cursor, Read, Write},
@@ -90,7 +91,8 @@ bitflags::bitflags! {
         const COMPRESSED = 0b0000_0001;
         const ENCRYPTED  = 0b0000_0010;
         const ENCODED    = 0b0000_0100;
-        const RESERVED   = 0b0000_1000;
+        const SIGNATURE  = 0b0000_1000;
+        const OPTIMIZED  = 0b0000_1111; // 
         // Add other flags as needed
     }
 }
@@ -107,8 +109,11 @@ impl fmt::Display for Flags {
         if self.contains(Flags::ENCODED) {
             flags.push("Encoded".blue().to_string());
         }
-        if self.contains(Flags::RESERVED) {
-            flags.push("Reserved".yellow().to_string());
+        if self.contains(Flags::SIGNATURE) {
+            flags.push("Signed".yellow().to_string());
+        }
+        if self.contains(Flags::OPTIMIZED) {
+            flags.push("SECURE".bright_green().bold().to_string());
         }
         write!(f, "{}", flags.join(", "))
     }
@@ -203,7 +208,7 @@ where
 
     // Standardized order of processing flags: Compression -> Encoding -> Encryption
     fn ordered_flags() -> Vec<Flags> {
-        vec![Flags::COMPRESSED, Flags::ENCODED, Flags::ENCRYPTED]
+        vec![Flags::COMPRESSED, Flags::ENCODED, Flags::ENCRYPTED, Flags::SIGNATURE]
     }
 
     pub async fn to_bytes(&mut self) -> io::Result<Vec<u8>> {
@@ -220,6 +225,7 @@ where
                     Flags::COMPRESSED => compress_data(&payload_bytes)?,
                     Flags::ENCODED => encode_data(&payload_bytes),
                     Flags::ENCRYPTED => encrypt_data(&payload_bytes).await.unwrap(),
+                    Flags::SIGNATURE => generate_checksum(&mut payload_bytes),
                     _ => payload_bytes,
                 };
             }
@@ -328,6 +334,7 @@ where
                     &Flags::ENCRYPTED => decrypt_data(&payload).await.unwrap(),
                     &Flags::ENCODED => decode_data(&payload).unwrap(),
                     &Flags::COMPRESSED => decompress_data(&payload)?,
+                    &Flags::SIGNATURE => verify_checksum(payload),
                     &Flags::NONE => payload,
                     _ => unreachable!(),
                 };
@@ -359,6 +366,37 @@ pub fn decompress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data)?;
     Ok(decompressed_data)
+}
+
+pub fn generate_checksum(data: &mut Vec<u8>) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(data.clone());
+    let mut checksum: Vec<u8> = hasher.finalize().to_vec();
+    data.append(&mut checksum);
+    data.to_vec()
+}
+
+pub fn verify_checksum(data_with_checksum: Vec<u8>) -> Vec<u8> {
+    // Check that the data has at least a SHA-256 checksum length appended
+    if data_with_checksum.len() < 32 {
+        return Vec::new();
+    }
+
+    // Separate the data and the appended checksum
+    let data_len = data_with_checksum.len() - 32;
+    let (data, checksum) = data_with_checksum.split_at(data_len);
+
+    // Generate the checksum for the data portion
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let calculated_checksum = hasher.finalize().to_vec();
+
+    // Compare the calculated checksum with the provided checksum
+    if checksum == calculated_checksum.as_slice() {
+        data.to_vec()  // Return original data if checksum is valid
+    } else {
+        Vec::new()  // Return an empty Vec<u8> if checksum is invalid
+    }
 }
 
 pub fn encode_data(data: &[u8]) -> Vec<u8> {

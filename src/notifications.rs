@@ -56,7 +56,7 @@ impl Email {
             ));
         }
 
-        let mut message: ProtocolMessage<String> = ProtocolMessage::new(Flags::COMPRESSED | Flags::ENCODED | Flags::ENCRYPTED, self.to_json()?)?;
+        let mut message: ProtocolMessage<String> = ProtocolMessage::new(Flags::OPTIMIZED, self.to_json()?)?;
 
         let mut stream = match addr {
             Some(addr) => TcpStream::connect(addr).await,

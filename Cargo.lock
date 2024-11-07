@@ -1630,9 +1630,9 @@ dependencies = [
 
 [[package]]
 name = "recs_lib"
-version = "3.0.0"
+version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8df8635a97588369b7cce2920a8e857c72825651cdb7212821178bef4bbdca93"
+checksum = "e7e83c1e498309ccb89cc728aed4dcdf89ad4a2fcd77e6baf5dca93f3ef79b98"
 dependencies = [
  "aes",
  "base64 0.21.7",

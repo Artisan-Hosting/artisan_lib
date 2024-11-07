@@ -1,10 +1,12 @@
 {
     "cSpell.words": [
         "ARTISANCF",
+        "bitflags",
         "cutime",
         "gethostname",
         "Gitserver",
         "IDENTITYPATHSTR",
-        "killpg"
+        "killpg",
+        "TIMEDOUT"
     ]
 }

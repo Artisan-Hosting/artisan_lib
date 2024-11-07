@@ -6,11 +6,12 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     fmt::{self, Debug},
     io::{self, Cursor, Read, Write},
+    time::Duration,
     vec,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    net::{TcpStream, UnixStream},
 };
 
 use crate::{
@@ -59,6 +60,11 @@ impl ProtocolStatus {
             ProtocolStatus::MALFORMED => Color::BrightYellow,
             _ => Color::White,
         }
+    }
+
+    pub fn expect(&self, val: ProtocolStatus) -> bool {
+        // Checks if `self` contains exactly the same flags as `val`
+        *self == val
     }
 }
 
@@ -311,12 +317,6 @@ where
                 io::ErrorKind::InvalidData,
                 "Reserved field must be zero",
             ));
-        } else {
-            log!(
-                LogLevel::Trace,
-                "Reserved bits check: OK: {:#?}",
-                header.reserved
-            );
         }
 
         // Deserialize and process payload
@@ -441,7 +441,7 @@ where
     match ProtocolMessage::<T>::from_bytes(&buffer).await {
         Ok(message) => {
             log!(LogLevel::Debug, "Received message: {:?}", message);
-            let mut response: ProtocolMessage<()> = ProtocolMessage::new(Flags::COMPRESSED, ()).unwrap();
+            let mut response: ProtocolMessage<()> = ProtocolMessage::new(Flags::NONE, ()).unwrap();
             response.header.status = ProtocolStatus::OK.bits();
             response.header.reserved = Reserved::NONE.bits();
 
@@ -457,7 +457,7 @@ where
         }
         Err(e) => {
             log!(LogLevel::Error, "Deserialization error: {}", e);
-            let mut error_response = ProtocolMessage::new(Flags::ENCODED, ()).unwrap();
+            let mut error_response = ProtocolMessage::new(Flags::NONE, ()).unwrap();
             error_response.header.status = 0b0000_0010;
             let error = error_response.to_bytes().await?;
             stream.write_all(&error).await?;
@@ -469,44 +469,94 @@ where
     }
 }
 
-// // Socket communications
-// pub async fn send_message_unix<T: serde::Serialize>(
-//     path: &str,
-//     message: &mut ProtocolMessage<T>,
-// ) -> io::Result<()>
-// where
-//     T: for<'de> Deserialize<'de>,
-// {
-//     let mut stream = UnixStream::connect(path).await?;
-//     let serialized_data = message.to_bytes().await?;
+// Socket communications
+pub async fn send_message_unix<T>(
+    path: &str,
+    message: &mut ProtocolMessage<T>,
+) -> io::Result<ProtocolStatus>
+where
+    T: serde::Serialize + DeserializeOwned + std::fmt::Debug,
+{
+    // set origin to 0.0.0.0 to indicate local transfer
+    message.header.origin_address = [0, 0, 0, 0];
+    let mut stream: UnixStream = UnixStream::connect(path).await?;
+    let mut serialized_data = message.to_bytes().await?;
+    serialized_data.extend_from_slice(EOL.as_bytes()); // Append EOL for message termination
 
-//     // Send the data over the Unix socket
-//     stream.write_all(&serialized_data).await?;
-//     log!(LogLevel::Trace, "Message sent to Unix socket at {}", path);
-//     Ok(())
-// }
+    // Send the data over the Unix socket
+    stream.write_all(&serialized_data).await?;
+    log!(LogLevel::Trace, "Message sent to Unix socket at {}", path);
 
-// pub async fn receive_message_unix<T>(path: &str) -> io::Result<ProtocolMessage<T>>
-// where
-//     T: serde::de::DeserializeOwned + serde::Serialize + Debug,
-// {
-//     // Use Tokio's async UnixListener
-//     let listener = UnixListener::bind(path)?;
+    // Timeout duration for receiving a response
+    let mut response_buffer = Vec::with_capacity(10);
 
-//     loop {
-//         // Accept a new incoming connection
-//         let (mut stream, _) = listener.accept().await?;
+    // Read the response data with a timeout
+    log!(LogLevel::Trace, "Reading response data...");
+    tokio::time::sleep(Duration::from_micros(1)).await;
+    match stream.read_buf(&mut response_buffer).await {
+        Ok(bytes_read) => {
+            if bytes_read == 0 {
+                log!(LogLevel::Error, "Received empty response data");
+                stream.shutdown().await?;
+                return Ok(ProtocolStatus::MALFORMED);
+            }
 
-//         let mut buffer = Vec::new();
+            let response: ProtocolMessage<()> =
+                ProtocolMessage::from_bytes(&response_buffer).await?;
+            let response_status = ProtocolStatus::from_bits_truncate(response.header.status);
+            log!(LogLevel::Trace, "Received response: {:?}", response);
+            return Ok(response_status);
+        }
+        Err(err) => return Err(err),
+    };
+}
 
-//         // Read the incoming data into the buffer
-//         stream.read_to_end(&mut buffer).await?;
-//         let message: ProtocolMessage<T> = ProtocolMessage::from_bytes(&buffer).await?;
+pub async fn receive_message_unix<T>(mut stream: &mut UnixStream) -> io::Result<ProtocolMessage<T>>
+where
+    T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize,
+{
+    // Read until EOL to get the entire message
+    let mut buffer: Vec<u8> = read_until(&mut stream, EOL.as_bytes().to_vec()).await?;
 
-//         log!(LogLevel::Trace, "Message received: {:?}", message);
-//         return Ok(message);
-//     }
-// }
+    // Truncate the EOL from the buffer
+    if let Some(pos) = buffer
+        .windows(EOL.len())
+        .rposition(|window| window == EOL.as_bytes())
+    {
+        buffer.truncate(pos);
+    }
+
+    // Deserialize and handle the message
+    match ProtocolMessage::<T>::from_bytes(&buffer).await {
+        Ok(message) => {
+            log!(LogLevel::Debug, "Received message: {:?}", message);
+
+            // Prepare a response message
+            let mut response: ProtocolMessage<()> = ProtocolMessage::new(Flags::NONE, ())?;
+            response.header.status = ProtocolStatus::OK.bits();
+            response.header.reserved = Reserved::NONE.bits();
+            response.header.origin_address = [0, 0, 0, 0];
+
+            let serialized_response = response.to_bytes().await?;
+            let num: usize = stream.write(&serialized_response).await?;
+            log!(LogLevel::Trace, "Number of bytes sent in response: {}", num);
+
+            Ok(message)
+        }
+        Err(e) => {
+            log!(LogLevel::Error, "Deserialization error: {}", e);
+
+            // Send an error response if deserialization fails
+            let mut error_response = ProtocolMessage::new(Flags::ENCODED, ()).unwrap();
+            error_response.header.status = ProtocolStatus::ERROR.bits();
+            let error_bytes = error_response.to_bytes().await?;
+            stream.write_all(&error_bytes).await?;
+            stream.shutdown().await?;
+
+            Err(io::Error::new(io::ErrorKind::InvalidData, e))
+        }
+    }
+}
 
 // Helpers
 fn read_with_std_io<R: Read>(reader: &mut R, buffer: &mut [u8]) -> io::Result<()> {
@@ -522,7 +572,10 @@ pub async fn read_with_tokio_io<R: AsyncReadExt + Unpin>(
     Ok(())
 }
 
-pub async fn read_until(stream: &mut TcpStream, delimiter: Vec<u8>) -> io::Result<Vec<u8>> {
+pub async fn read_until<T>(stream: &mut T, delimiter: Vec<u8>) -> io::Result<Vec<u8>>
+where
+    T: AsyncReadExt + Unpin,
+{
     let mut result_buffer: Vec<u8> = Vec::new();
     let delimiter_len = delimiter.len();
 

@@ -23,9 +23,10 @@ pub fn get_local_ip() -> Ipv4Addr {
     Ipv4Addr::LOCALHOST // Return loopback address if no suitable non-loopback address is found
 }
 
-pub fn get_header_version() -> u16 {
+pub fn get_header_version() -> u8 {
+    
     let major_int = MAJOR_VERSION.parse::<u8>().unwrap_or(0);
     let minor_int = MINOR_VERSION.parse::<u8>().unwrap_or(0);
 
-    ((major_int << 8) | (minor_int << 4) | 0).into() // Shifts and ignoring the patch number
+    ((major_int << 7) | (minor_int << 3) | 0).into() // Shifts and ignoring the patch number
 }

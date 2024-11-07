@@ -1,11 +1,11 @@
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
-    stringy::Stringy,
+    errors::{ErrorArrayItem, Errors}, log::LogLevel, log, stringy::Stringy
 };
 use serde::{Deserialize, Serialize};
+use tokio::net::TcpStream;
 use std::fmt;
 
-use crate::{communication_proto::{send_message_tcp, Flags, ProtocolMessage}, encryption::encrypt_text};
+use crate::{communication_proto::{send_message_tcp, Flags, ProtocolMessage, ProtocolStatus}, encryption::encrypt_text};
 
 const MAIL_ADDRESS: &str = "45.137.192.70:1827";
 
@@ -76,16 +76,17 @@ impl EmailSecure {
     /// Sends the encrypted email data over a TCP stream.
     pub async fn send(&self) -> Result<(), ErrorArrayItem> {
         // Attempt to connect to the specified address
-        // let stream = TcpStream::connect("127.0.0.1:1827").map_err(|e| ErrorArrayItem::from(e))?;
 
         let mut message: ProtocolMessage<String> = ProtocolMessage::new(Flags::COMPRESSED | Flags::ENCODED, self.to_json()?)?;
+        let mut stream = TcpStream::connect(MAIL_ADDRESS).await?;
 
-        match send_message_tcp(MAIL_ADDRESS, &mut message).await.map_err(|err| ErrorArrayItem::from(err)) {
-            Ok(status) => match status {
-                crate::communication_proto::ProtocolStatus::Ok => Ok(()),
-                crate::communication_proto::ProtocolStatus::Error => Err(ErrorArrayItem::new(Errors::Protocol, String::from("Failed sending message. Protocol error"))),
-                crate::communication_proto::ProtocolStatus::Waiting => unreachable!(),  // Because this would be an illegal request
-                crate::communication_proto::ProtocolStatus::Other(_) => unreachable!(), // Because this would be an illegal request
+        match send_message_tcp(&mut stream, &mut message).await.map_err(|err| ErrorArrayItem::from(err)) {
+            Ok(status) => match status.expect(ProtocolStatus::OK){
+                true => return Ok(()),
+                false => {
+                    log!(LogLevel::Error, "Email failed to send ? {}", status);
+                    return Ok(())
+                },
             },
             Err(error) => Err(error),
         }

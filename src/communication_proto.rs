@@ -308,12 +308,12 @@ where
         log!(LogLevel::Debug, "Recieved header \n{}", header);
 
         // Validate header fields
-        if header.reserved != Reserved::NONE.bits() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Reserved field must be zero",
-            ));
-        }
+        // if header.reserved != Reserved::NONE.bits() {
+        //     return Err(io::Error::new(
+        //         io::ErrorKind::InvalidData,
+        //         "Reserved field must be zero",
+        //     ));
+        // }
 
         // Deserialize and process payload
         let mut payload = payload_bytes.to_vec();

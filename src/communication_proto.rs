@@ -101,6 +101,13 @@ bitflags::bitflags! {
     }
 }
 
+impl Flags {
+    pub fn expect(&self, val: Flags) -> bool {
+        // Checks if `self` contains exactly the same flags as `val`
+        *self == val
+    }
+}
+
 impl fmt::Display for Flags {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut flags = vec![];

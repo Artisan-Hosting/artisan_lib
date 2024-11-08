@@ -45,6 +45,8 @@ bitflags::bitflags! {
         const WAITING   = 0b0000_0100;
         const TIMEDOUT  = 0b0000_1000;
         const MALFORMED = 0b0001_0000;
+        const SIDEGRADE = 0b1001_0010;
+        const REFUSED   = 0b0100_0010;
         const RESERVED  = 0b0010_0000;
         // Add other statuses as needed up to 8 bits
     }
@@ -57,6 +59,7 @@ impl ProtocolStatus {
             ProtocolStatus::ERROR => Color::Red,
             ProtocolStatus::WAITING => Color::Yellow,
             ProtocolStatus::RESERVED => Color::Blue,
+            ProtocolStatus::SIDEGRADE => Color::Blue,
             ProtocolStatus::TIMEDOUT => Color::BrightYellow,
             ProtocolStatus::MALFORMED => Color::BrightYellow,
             _ => Color::White,
@@ -76,6 +79,7 @@ impl fmt::Display for ProtocolStatus {
             ProtocolStatus::ERROR => "Error",
             ProtocolStatus::WAITING => "Waiting",
             ProtocolStatus::RESERVED => "Reserved",
+            ProtocolStatus::SIDEGRADE => "Client requested different flags",
             ProtocolStatus::TIMEDOUT => "Timed Out",
             ProtocolStatus::MALFORMED => "Malformed Response",
             _ => "Unknown",

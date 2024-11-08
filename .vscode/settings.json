@@ -7,6 +7,7 @@
         "Gitserver",
         "IDENTITYPATHSTR",
         "killpg",
+        "SIDEGRADE",
         "TIMEDOUT"
     ]
 }

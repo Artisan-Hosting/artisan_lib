@@ -65,7 +65,7 @@ impl Email {
 
         log! {LogLevel::Trace, "Connected to: {:#?}", stream.peer_addr().unwrap()};
 
-        match send_message_tcp(&mut stream, &mut message).await.map_err(|err| ErrorArrayItem::from(err)) {
+        match send_message_tcp(&mut stream, &mut message, true).await.map_err(|err| ErrorArrayItem::from(err)) {
             Ok(status) => match status.expect(ProtocolStatus::OK) {
                 true => Ok(()),
                 false => {

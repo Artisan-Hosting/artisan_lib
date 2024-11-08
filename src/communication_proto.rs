@@ -13,6 +13,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UnixStream},
+    time::timeout,
 };
 
 use crate::{
@@ -96,7 +97,7 @@ bitflags::bitflags! {
         const ENCRYPTED  = 0b0000_0010;
         const ENCODED    = 0b0000_0100;
         const SIGNATURE  = 0b0000_1000;
-        const OPTIMIZED  = 0b0000_1111; // 
+        const OPTIMIZED  = 0b0000_1111; //
         // Add other flags as needed
     }
 }
@@ -219,7 +220,12 @@ where
 
     // Standardized order of processing flags: Compression -> Encoding -> Encryption
     fn ordered_flags() -> Vec<Flags> {
-        vec![Flags::COMPRESSED, Flags::ENCODED, Flags::ENCRYPTED, Flags::SIGNATURE]
+        vec![
+            Flags::COMPRESSED,
+            Flags::ENCODED,
+            Flags::ENCRYPTED,
+            Flags::SIGNATURE,
+        ]
     }
 
     pub async fn to_bytes(&mut self) -> io::Result<Vec<u8>> {
@@ -277,7 +283,6 @@ where
 
         let header_bytes: &[u8] = &bytes[..HEADER_LENGTH];
         let payload_bytes: &[u8] = &bytes[HEADER_LENGTH..];
-
 
         // Manually deserialize the header fields
         let mut cursor = Cursor::new(header_bytes);
@@ -394,9 +399,9 @@ pub fn verify_checksum(data_with_checksum: Vec<u8>) -> Vec<u8> {
 
     // Compare the calculated checksum with the provided checksum
     if checksum == calculated_checksum.as_slice() {
-        data.to_vec()  // Return original data if checksum is valid
+        data.to_vec() // Return original data if checksum is valid
     } else {
-        Vec::new()  // Return an empty Vec<u8> if checksum is invalid
+        Vec::new() // Return an empty Vec<u8> if checksum is invalid
     }
 }
 
@@ -412,12 +417,14 @@ pub fn decode_data(data: &[u8]) -> Result<Vec<u8>, ErrorArrayItem> {
     hex::decode(hex_string).map_err(|err| ErrorArrayItem::from(err))
 }
 
-pub async fn send_message_tcp<T>(
-    stream: &mut TcpStream,
-    message: &mut ProtocolMessage<T>,
+// Updated function to return `impl Future`
+pub async fn send_message_tcp<'a, T>(
+    stream: &'a mut TcpStream,
+    message: &'a mut ProtocolMessage<T>,
+    sidegrade: bool,
 ) -> io::Result<ProtocolStatus>
 where
-    T: serde::Serialize + DeserializeOwned + std::fmt::Debug,
+    T: serde::Serialize + DeserializeOwned + std::fmt::Debug + Send,
 {
     // Serialize the message data
     let mut serialized_data = message.to_bytes().await?;
@@ -438,30 +445,73 @@ where
 
     // Read the response data with a timeout
     log!(LogLevel::Trace, "Reading response data...");
-    let bytes_received: usize = match stream.read_exact(&mut response_buffer).await {
-        Ok(num) => num,
-        Err(err) => match err.kind() {
-            io::ErrorKind::UnexpectedEof => return Ok(ProtocolStatus::MALFORMED),
-            _ => return Err(err),
-        },
-    };
+    match timeout(
+        Duration::from_secs(3),
+        stream.read_exact(&mut response_buffer),
+    )
+    .await
+    {
+        Ok(result) => {
+            match result {
+                Ok(bytes_read) => {
+                    if bytes_read == 0 {
+                        log!(LogLevel::Error, "Invalid response data received");
+                        stream.shutdown().await?;
+                        return Ok(ProtocolStatus::MALFORMED);
+                    }
 
-    if bytes_received == 0 {
-        log!(LogLevel::Error, "Invalid response data recieved");
-        stream.shutdown().await?;
-        return Ok(ProtocolStatus::TIMEDOUT);
+                    // Parse the response
+                    let response: ProtocolMessage<()> =
+                        match ProtocolMessage::<()>::from_bytes(&response_buffer).await {
+                            Ok(res) => res,
+                            Err(_) => {
+                                stream.shutdown().await?;
+                                return Ok(ProtocolStatus::MALFORMED);
+                            }
+                        };
+
+                    let response_status: ProtocolStatus =
+                        ProtocolStatus::from_bits_truncate(response.header.status);
+
+                    if response_status.expect(ProtocolStatus::SIDEGRADE) {
+                        log!(LogLevel::Debug, "SideGrade requested");
+                        if sidegrade {
+                            message.header.flags = response.header.reserved;
+                            log!(LogLevel::Debug, "Sending the sidegrade request");
+                            return Box::pin(send_message_tcp(stream, message, sidegrade)).await;
+                        } else {
+                            log!(
+                                LogLevel::Debug,
+                                "The server requested a sidegrade for a message we won't sidegrade"
+                            );
+                            stream.shutdown().await?;
+                            return Ok(ProtocolStatus::REFUSED);
+                        }
+                    }
+
+                    stream.shutdown().await?;
+                    return Ok(response_status);
+                }
+                Err(err) => {
+                    stream.shutdown().await?;
+                    match err.kind() {
+                        io::ErrorKind::UnexpectedEof => return Ok(ProtocolStatus::MALFORMED),
+                        _ => return Err(err),
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            stream.shutdown().await?;
+            return Ok(ProtocolStatus::TIMEDOUT);
+        }
     }
-
-    let response: ProtocolMessage<()> = ProtocolMessage::<()>::from_bytes(&response_buffer).await?;
-    let response_status: ProtocolStatus =
-        ProtocolStatus::from_bits_truncate(response.header.status);
-
-    stream.shutdown().await?;
-
-    return Ok(response_status);
 }
 
-pub async fn receive_message_tcp<T>(stream: &mut TcpStream) -> io::Result<ProtocolMessage<T>>
+pub async fn receive_message_tcp<T>(
+    stream: &mut TcpStream,
+    auto_reply: bool,
+) -> io::Result<ProtocolMessage<T>>
 where
     T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize,
 {
@@ -480,17 +530,22 @@ where
     match ProtocolMessage::<T>::from_bytes(&buffer).await {
         Ok(message) => {
             log!(LogLevel::Trace, "Received message: {:?}", message);
-            let mut response: ProtocolMessage<()> = ProtocolMessage::new(Flags::NONE, ()).unwrap();
-            response.header.status = ProtocolStatus::OK.bits();
-            response.header.reserved = Reserved::NONE.bits();
 
-            // Connect to the server asynchronously
-            let serialized_data = response.to_bytes().await?;
+            if auto_reply {
+                let mut response: ProtocolMessage<()> =
+                    ProtocolMessage::new(Flags::NONE, ()).unwrap();
+                response.header.status = ProtocolStatus::OK.bits();
+                response.header.reserved = Reserved::NONE.bits();
 
-            // Send the length prefix and the data asynchronously
-            let scratch = stream.try_write(&serialized_data)?;
-            log!(LogLevel::Trace, "Response bytes sent: {scratch}");
-            log!(LogLevel::Debug, "Sent header: {}", response.header);
+                // Connect to the server asynchronously
+                let serialized_data = response.to_bytes().await?;
+
+                // Send the length prefix and the data asynchronously
+                let scratch = stream.try_write(&serialized_data)?;
+                log!(LogLevel::Trace, "Response bytes sent: {scratch}");
+                log!(LogLevel::Debug, "Sent header: {}", response.header);
+            }
+
             stream.flush().await?;
 
             Ok(message)
@@ -498,11 +553,11 @@ where
         Err(e) => {
             log!(LogLevel::Error, "Deserialization error: {}", e);
             let mut error_response = ProtocolMessage::new(Flags::NONE, ()).unwrap();
-            error_response.header.status = 0b0000_0010;
+            error_response.header.status = ProtocolStatus::ERROR.bits();
             let error = error_response.to_bytes().await?;
             stream.write_all(&error).await?;
             stream.flush().await?;
-            stream.shutdown().await?;
+            // stream.shutdown().await?;
 
             return Err(io::Error::new(io::ErrorKind::InvalidData, e));
         }

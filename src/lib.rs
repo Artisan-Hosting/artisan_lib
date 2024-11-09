@@ -5,7 +5,6 @@ pub mod config;
 pub mod encryption;
 pub mod git_actions;
 pub mod identity;
-pub mod communication_struct;
 pub mod notifications;
 pub mod process_manager;
 pub mod resource_monitor;
@@ -14,6 +13,7 @@ pub mod timestamp;
 pub mod users;
 pub mod communication_proto;
 pub mod network;
+pub mod aggregator;
 
 // // tests
 // #[path = "../src/tests/encryption_test.rs"]

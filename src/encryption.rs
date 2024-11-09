@@ -1,13 +1,17 @@
 use {
     dusa_collection_utils::{
         errors::{ErrorArrayItem, Errors, UnifiedResult},
-        log,
         log::LogLevel,
+        log,
         stringy::Stringy,
     },
     recs::{decrypt_raw, encrypt_raw, initialize},
-    std::sync::Arc,
+    std::sync::{atomic::{AtomicBool, Ordering}, Arc},
 };
+
+lazy_static::lazy_static! {
+    static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false)); 
+}
 
 pub trait Encryption {
     fn encrypt_text(&self, data: Stringy) -> Result<Stringy, ErrorArrayItem>;
@@ -32,7 +36,11 @@ pub async fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
 }
 
 pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
-    initialize(true).await;
+    if !initialized.load(Ordering::Relaxed) {
+        initialize(true).await;
+        initialized.store(true, Ordering::Relaxed);
+    }
+
     match encrypt_raw(unsafe { String::from_utf8_unchecked(data.to_vec()) })
         .await
         .uf_unwrap()
@@ -49,7 +57,10 @@ pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
 }
 
 pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
-    initialize(true).await;
+    if !initialized.load(Ordering::Relaxed) {
+        initialize(true).await;
+        initialized.store(true, Ordering::Relaxed);
+    }
 
     let data_str = match std::str::from_utf8(data) {
         Ok(s) => s,

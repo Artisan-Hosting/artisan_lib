@@ -139,7 +139,7 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProtocolHeader {
     pub version: u8,
     pub flags: u8,
@@ -196,7 +196,7 @@ pub struct ProtocolMessage<T> {
 
 impl<T> ProtocolMessage<T>
 where
-    T: Serialize + for<'a> Deserialize<'a> + std::fmt::Debug,
+    T: Serialize + for<'a> Deserialize<'a> + std::fmt::Debug + Clone,
 {
     // Create a new protocol message
     pub fn new(flags: Flags, payload: T) -> io::Result<Self> {
@@ -356,6 +356,14 @@ where
 
         Ok(Self { header, payload })
     }
+
+    pub async fn get_payload(&self) -> T {
+        return self.payload.clone();
+    }
+
+    pub async fn get_header(&self) -> ProtocolHeader {
+        return self.header.clone();
+    }
 }
 
 // Helper functions for compression
@@ -424,7 +432,7 @@ pub async fn send_message_tcp<'a, T>(
     sidegrade: bool,
 ) -> io::Result<ProtocolStatus>
 where
-    T: serde::Serialize + DeserializeOwned + std::fmt::Debug + Send,
+    T: serde::Serialize + DeserializeOwned + std::fmt::Debug + Send + Clone,
 {
     // Serialize the message data
     let mut serialized_data = message.to_bytes().await?;
@@ -513,7 +521,7 @@ pub async fn receive_message_tcp<T>(
     auto_reply: bool,
 ) -> io::Result<ProtocolMessage<T>>
 where
-    T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize,
+    T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
 {
     let mut buffer: Vec<u8> = read_until(stream, EOL.as_bytes().to_vec()).await?;
     stream.flush().await?;
@@ -557,7 +565,6 @@ where
             let error = error_response.to_bytes().await?;
             stream.write_all(&error).await?;
             stream.flush().await?;
-            // stream.shutdown().await?;
 
             return Err(io::Error::new(io::ErrorKind::InvalidData, e));
         }
@@ -570,7 +577,7 @@ pub async fn send_message_unix<T>(
     message: &mut ProtocolMessage<T>,
 ) -> io::Result<ProtocolStatus>
 where
-    T: serde::Serialize + DeserializeOwned + std::fmt::Debug,
+    T: serde::Serialize + DeserializeOwned + std::fmt::Debug + Clone,
 {
     // set origin to 0.0.0.0 to indicate local transfer
     message.header.origin_address = [0, 0, 0, 0];
@@ -608,7 +615,7 @@ where
 
 pub async fn receive_message_unix<T>(mut stream: &mut UnixStream) -> io::Result<ProtocolMessage<T>>
 where
-    T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize,
+    T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
 {
     // Read until EOL to get the entire message
     let mut buffer: Vec<u8> = read_until(&mut stream, EOL.as_bytes().to_vec()).await?;

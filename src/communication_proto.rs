@@ -1,11 +1,11 @@
 use bincode;
-use colored::{Color, Colorize};
+use colored::{Color, ColoredString, Colorize};
 use dusa_collection_utils::{errors::ErrorArrayItem, log, log::LogLevel};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    fmt::{self, Debug},
+    fmt::{self, Debug, Display},
     io::{self, Cursor, Read, Write},
     time::Duration,
     vec,
@@ -99,6 +99,22 @@ bitflags::bitflags! {
         const SIGNATURE  = 0b0000_1000;
         const OPTIMIZED  = 0b0000_1111; //
         // Add other flags as needed
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+pub enum Proto {
+    TCP,
+    UNIX,
+}
+
+impl fmt::Display for Proto {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let protocol: ColoredString = "PROTOCOL".bold().blue();
+        match &self {
+            Proto::TCP => write!(f, "{}: {}", protocol, "TCP".green().bold()),
+            Proto::UNIX => write!(f, "{}: {}", protocol, "UNIX".green().bold()),
+        }
     }
 }
 
@@ -311,7 +327,6 @@ where
 
         let mut origin_address: [u8; 4] = [0u8; 4];
         read_with_std_io(&mut cursor, &mut origin_address)?;
-        // cursor.read_exact(&mut origin_address)?;
 
         let header: ProtocolHeader = ProtocolHeader {
             version,
@@ -323,7 +338,7 @@ where
         };
         log!(LogLevel::Debug, "Recieved header \n{}", header);
 
-        // Validate header fields
+        // ? This as before sidegrades used the reserved fieled to re request data
         // if header.reserved != Reserved::NONE.bits() {
         //     return Err(io::Error::new(
         //         io::ErrorKind::InvalidData,
@@ -363,6 +378,14 @@ where
 
     pub async fn get_header(&self) -> ProtocolHeader {
         return self.header.clone();
+    }
+
+    /// returns a sendable Vec<u8> with the EOL appended
+    pub async fn format(self) -> Result<Vec<u8>, io::Error> {
+        let mut message: ProtocolMessage<T> = self;
+        let mut message_bytes: Vec<u8> = message.to_bytes().await?;
+        message_bytes.extend_from_slice(EOL.as_bytes());
+        return Ok(message_bytes);
     }
 }
 
@@ -425,202 +448,98 @@ pub fn decode_data(data: &[u8]) -> Result<Vec<u8>, ErrorArrayItem> {
     hex::decode(hex_string).map_err(|err| ErrorArrayItem::from(err))
 }
 
-// Updated function to return `impl Future`
-pub async fn send_message_tcp<'a, T>(
-    stream: &'a mut TcpStream,
-    message: &'a mut ProtocolMessage<T>,
+pub async fn send_message<STREAM, DATA, RESPONSE>(
+    mut stream: &mut STREAM,
+    flags: Flags,
+    data: DATA,
+    proto: Proto,
     sidegrade: bool,
-) -> io::Result<ProtocolStatus>
+) -> Result<Result<ProtocolMessage<RESPONSE>, ProtocolStatus>, io::Error>
 where
-    T: serde::Serialize + DeserializeOwned + std::fmt::Debug + Send + Clone,
+    STREAM: AsyncReadExt + AsyncWriteExt + Unpin,
+    DATA: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
+    RESPONSE: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
 {
-    // Serialize the message data
-    let mut serialized_data = message.to_bytes().await?;
-    // Adding the EOL
-    serialized_data.append(&mut EOL.as_bytes().to_vec());
+    let mut message: ProtocolMessage<DATA> = ProtocolMessage::new(flags, data.clone())?;
 
-    // Send the data asynchronously
-    stream.write_all(&serialized_data).await?;
-    stream.flush().await?;
-    log!(
-        LogLevel::Trace,
-        "Message sent to {:#?}",
-        stream.peer_addr().unwrap()
-    );
+    match proto {
+        Proto::TCP => message.header.origin_address = get_local_ip().octets(),
+        Proto::UNIX => message.header.origin_address = [0, 0, 0, 0],
+    };
 
-    // Timeout duration for receiving a response
-    let mut response_buffer: Vec<u8> = vec![0u8; 10]; // Adjust this as necessary if response size differs
+    // Creating message bytes and appending eol
+    let serialized_message: Vec<u8> = message.format().await?;
+    log!(LogLevel::Trace, "message serialized for sending");
 
-    // Read the response data with a timeout
-    log!(LogLevel::Trace, "Reading response data...");
-    match timeout(
-        Duration::from_secs(3),
-        stream.read_exact(&mut response_buffer),
-    )
-    .await
-    {
-        Ok(result) => {
-            match result {
-                Ok(bytes_read) => {
-                    if bytes_read == 0 {
-                        log!(LogLevel::Error, "Invalid response data received");
-                        stream.shutdown().await?;
-                        return Ok(ProtocolStatus::MALFORMED);
-                    }
-
-                    // Parse the response
-                    let response: ProtocolMessage<()> =
-                        match ProtocolMessage::<()>::from_bytes(&response_buffer).await {
-                            Ok(res) => res,
-                            Err(_) => {
-                                stream.shutdown().await?;
-                                return Ok(ProtocolStatus::MALFORMED);
-                            }
-                        };
-
-                    let response_status: ProtocolStatus =
-                        ProtocolStatus::from_bits_truncate(response.header.status);
-
-                    if response_status.expect(ProtocolStatus::SIDEGRADE) {
-                        log!(LogLevel::Debug, "SideGrade requested");
-                        if sidegrade {
-                            message.header.flags = response.header.reserved;
-                            log!(LogLevel::Debug, "Sending the sidegrade request");
-                            return Box::pin(send_message_tcp(stream, message, sidegrade)).await;
-                        } else {
-                            log!(
-                                LogLevel::Debug,
-                                "The server requested a sidegrade for a message we won't sidegrade"
-                            );
-                            stream.shutdown().await?;
-                            return Ok(ProtocolStatus::REFUSED);
-                        }
-                    }
-
-                    stream.shutdown().await?;
-                    return Ok(response_status);
-                }
-                Err(err) => {
-                    stream.shutdown().await?;
-                    match err.kind() {
-                        io::ErrorKind::UnexpectedEof => return Ok(ProtocolStatus::MALFORMED),
-                        _ => return Err(err),
-                    }
-                }
-            }
+    // sending the data
+    match proto {
+        Proto::TCP => {
+            send_data(stream, serialized_message, Proto::TCP).await?;
+            log!(LogLevel::Trace, "Message sent over tcp");
         }
-        Err(_) => {
-            stream.shutdown().await?;
-            return Ok(ProtocolStatus::TIMEDOUT);
+        Proto::UNIX => {
+            send_data(stream, serialized_message, Proto::UNIX).await?;
+            log!(LogLevel::Trace, "Message sent over unix socket")
         }
     }
-}
 
-pub async fn receive_message_tcp<T>(
-    stream: &mut TcpStream,
-    auto_reply: bool,
-) -> io::Result<ProtocolMessage<T>>
-where
-    T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
-{
-    let mut buffer: Vec<u8> = read_until(stream, EOL.as_bytes().to_vec()).await?;
-    stream.flush().await?;
-
-    if let Some(pos) = buffer
-        .windows(EOL.len())
-        .rposition(|window| window == EOL.as_bytes())
-    {
-        buffer.truncate(pos);
-    }
-
-    // log!(LogLevel::Info, "Recieved Buffer: {:#?}", buffer);
-
-    match ProtocolMessage::<T>::from_bytes(&buffer).await {
-        Ok(message) => {
-            log!(LogLevel::Trace, "Received message: {:?}", message);
-
-            if auto_reply {
-                let mut response: ProtocolMessage<()> =
-                    ProtocolMessage::new(Flags::NONE, ()).unwrap();
-                response.header.status = ProtocolStatus::OK.bits();
-                response.header.reserved = Reserved::NONE.bits();
-
-                // Connect to the server asynchronously
-                let serialized_data = response.to_bytes().await?;
-
-                // Send the length prefix and the data asynchronously
-                let scratch = stream.try_write(&serialized_data)?;
-                log!(LogLevel::Trace, "Response bytes sent: {scratch}");
-                log!(LogLevel::Debug, "Sent header: {}", response.header);
-            }
-
-            stream.flush().await?;
-
-            Ok(message)
-        }
-        Err(e) => {
-            log!(LogLevel::Error, "Deserialization error: {}", e);
-            let mut error_response = ProtocolMessage::new(Flags::NONE, ()).unwrap();
-            error_response.header.status = ProtocolStatus::ERROR.bits();
-            let error = error_response.to_bytes().await?;
-            stream.write_all(&error).await?;
-            stream.flush().await?;
-
-            return Err(io::Error::new(io::ErrorKind::InvalidData, e));
-        }
-    }
-}
-
-// Socket communications
-pub async fn send_message_unix<T>(
-    path: &str,
-    message: &mut ProtocolMessage<T>,
-) -> io::Result<ProtocolStatus>
-where
-    T: serde::Serialize + DeserializeOwned + std::fmt::Debug + Clone,
-{
-    // set origin to 0.0.0.0 to indicate local transfer
-    message.header.origin_address = [0, 0, 0, 0];
-    let mut stream: UnixStream = UnixStream::connect(path).await?;
-    let mut serialized_data = message.to_bytes().await?;
-    serialized_data.extend_from_slice(EOL.as_bytes()); // Append EOL for message termination
-
-    // Send the data over the Unix socket
-    stream.write_all(&serialized_data).await?;
-    log!(LogLevel::Trace, "Message sent to Unix socket at {}", path);
-
-    // Timeout duration for receiving a response
-    let mut response_buffer = Vec::with_capacity(10);
-
-    // Read the response data with a timeout
-    log!(LogLevel::Trace, "Reading response data...");
-    tokio::time::sleep(Duration::from_micros(1)).await;
-    match stream.read_buf(&mut response_buffer).await {
-        Ok(bytes_read) => {
-            if bytes_read == 0 {
+    // Sleep a second for unix socket issues
+    tokio::time::sleep(Duration::from_micros(500)).await;
+    match read_until(&mut stream, EOL.as_bytes().to_vec()).await {
+        Ok(response_buffer) => {
+            if response_buffer.is_empty() {
                 log!(LogLevel::Error, "Received empty response data");
                 stream.shutdown().await?;
-                return Ok(ProtocolStatus::MALFORMED);
+                return Ok(Err(ProtocolStatus::MALFORMED));
             }
 
-            let response: ProtocolMessage<()> =
+            let response: ProtocolMessage<RESPONSE> =
                 ProtocolMessage::from_bytes(&response_buffer).await?;
-            let response_status = ProtocolStatus::from_bits_truncate(response.header.status);
+
+            let response_status: ProtocolStatus =
+                ProtocolStatus::from_bits_truncate(response.header.status);
+
+            let response_reserved: Flags = Flags::from_bits_truncate(response.header.reserved);
+
+            let _response_version: u8 = response.header.version;
+            // TODO add version calculations
+
+            if response_status.expect(ProtocolStatus::SIDEGRADE) {
+                log!(LogLevel::Debug, "SideGrade requested");
+                match sidegrade {
+                    true => {
+                        return send_message(stream, response_reserved, data, proto, sidegrade)
+                            .await
+                    }
+                    false => {
+                        log!(LogLevel::Info, "Sidegrade not allowed dropping connections");
+                        stream.shutdown().await?;
+                        return Ok(Err(ProtocolStatus::REFUSED));
+                    }
+                }
+            }
             log!(LogLevel::Trace, "Received response: {:?}", response);
-            return Ok(response_status);
+            return Ok(Ok(response));
         }
         Err(err) => return Err(err),
-    };
+    }
 }
 
-pub async fn receive_message_unix<T>(mut stream: &mut UnixStream) -> io::Result<ProtocolMessage<T>>
+pub async fn receive_message<STREAM, RESPONSE>(
+    stream: &mut STREAM,
+    auto_reply: bool,
+    proto: Proto,
+) -> io::Result<ProtocolMessage<RESPONSE>>
 where
-    T: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
+    STREAM: AsyncReadExt + AsyncWriteExt + Unpin,
+    RESPONSE: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone + Display,
 {
-    // Read until EOL to get the entire message
-    let mut buffer: Vec<u8> = read_until(&mut stream, EOL.as_bytes().to_vec()).await?;
+    let mut buffer: Vec<u8> = read_until(stream, EOL.as_bytes().to_vec()).await?;
 
-    // Truncate the EOL from the buffer
+    if proto == Proto::TCP {
+        stream.flush().await?;
+    }
+
     if let Some(pos) = buffer
         .windows(EOL.len())
         .rposition(|window| window == EOL.as_bytes())
@@ -628,40 +547,69 @@ where
         buffer.truncate(pos);
     }
 
-    // Deserialize and handle the message
-    match ProtocolMessage::<T>::from_bytes(&buffer).await {
+    match ProtocolMessage::<RESPONSE>::from_bytes(&buffer).await {
         Ok(message) => {
             log!(LogLevel::Debug, "Received message: {:?}", message);
 
-            // Prepare a response message
-            let mut response: ProtocolMessage<()> = ProtocolMessage::new(Flags::NONE, ())?;
-            response.header.status = ProtocolStatus::OK.bits();
-            response.header.reserved = Reserved::NONE.bits();
-            response.header.origin_address = [0, 0, 0, 0];
-
-            let serialized_response = response.to_bytes().await?;
-            let num: usize = stream.write(&serialized_response).await?;
-            log!(LogLevel::Trace, "Number of bytes sent in response: {}", num);
-
-            Ok(message)
+            match auto_reply {
+                true => {
+                    send_empty_ok(stream, proto).await?;
+                    return Ok(message)
+                },
+                false => return Ok(message),
+            }
         }
-        Err(e) => {
-            log!(LogLevel::Error, "Deserialization error: {}", e);
-
-            // Send an error response if deserialization fails
-            let mut error_response = ProtocolMessage::new(Flags::ENCODED, ()).unwrap();
-            error_response.header.status = ProtocolStatus::ERROR.bits();
-            let error_bytes = error_response.to_bytes().await?;
-            stream.write_all(&error_bytes).await?;
-            stream.shutdown().await?;
-
-            Err(io::Error::new(io::ErrorKind::InvalidData, e))
-        }
+        Err(err) => {
+            log!(LogLevel::Error, "Deserialization error: {}", err);
+            send_empty_err(stream, proto).await?;
+            return Err(io::Error::new(io::ErrorKind::InvalidData, err));
+        },
     }
 }
 
-// Helpers
-fn read_with_std_io<R: Read>(reader: &mut R, buffer: &mut [u8]) -> io::Result<()> {
+
+// * Sending and recieving helpers
+pub async fn create_response(status: ProtocolStatus) -> Result<Vec<u8>, io::Error> {
+    let mut message: ProtocolMessage<()> = ProtocolMessage::new(Flags::NONE, ())?;
+    message.header.status = status.bits();
+    let mut message_bytes = message.to_bytes().await?;
+    message_bytes.extend_from_slice(EOL.as_bytes());
+    return Ok(message_bytes);
+}
+
+pub async fn send_empty_err<S>(stream: &mut S, proto: Proto) -> Result<(), io::Error>
+where
+    S: AsyncWriteExt + Unpin,
+{
+    let response: Vec<u8> = create_response(ProtocolStatus::ERROR).await?;
+    send_data(stream, response, proto).await
+}
+
+pub async fn send_empty_ok<S>(stream: &mut S, proto: Proto) -> Result<(), io::Error>
+where
+    S: AsyncWriteExt + Unpin,
+{
+    let response: Vec<u8> = create_response(ProtocolStatus::OK).await?;
+    send_data(stream, response, proto).await
+}
+
+pub async fn send_data<S>(stream: &mut S, data: Vec<u8>, proto: Proto) -> Result<(), io::Error>
+where
+    S: AsyncWriteExt + Unpin,
+{
+    if let Err(err) = stream.write_all(&data).await {
+        return Err(err);
+    }
+
+    if proto == Proto::TCP {
+        stream.flush().await?
+    }
+
+    Ok(())
+}
+
+// Read helpers
+pub fn read_with_std_io<R: Read>(reader: &mut R, buffer: &mut [u8]) -> io::Result<()> {
     reader.read_exact(buffer)?;
     Ok(())
 }

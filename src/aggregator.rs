@@ -1,8 +1,11 @@
 use colored::Colorize;
-use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
+use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel,log, stringy::Stringy};
 use serde::{Deserialize, Serialize};
+use serde_json::Error;
 use std::{
-    fmt, fs::{File, OpenOptions}, io::{Read, Write}
+    fmt,
+    fs::{File, OpenOptions},
+    io::{Read, Write},
 };
 
 use crate::encryption::{decrypt_text, encrypt_text};
@@ -34,7 +37,6 @@ impl fmt::Display for CommandType {
     }
 }
 
-
 // Different status an application can be in
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub enum Status {
@@ -60,7 +62,6 @@ impl fmt::Display for Status {
     }
 }
 
-
 // Command Struct
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
@@ -83,7 +84,6 @@ impl fmt::Display for Command {
         )
     }
 }
-
 
 // Metrics Struct
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -111,7 +111,6 @@ impl fmt::Display for Metrics {
     }
 }
 
-
 // App Status Struct
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppStatus {
@@ -123,6 +122,24 @@ pub struct AppStatus {
     pub timestamp: u64,
     pub expected_status: Status,
     pub system_application: bool,
+}
+
+impl AppStatus {
+    // Convert `AppStatus` to a JSON string
+    pub fn to_json(&self) -> Option<String> {
+        match serde_json::to_string(self) {
+            Ok(data) => Some(data),
+            Err(e) => {
+                log!(LogLevel::Error, "{}", e);
+                None
+            },
+        }
+    }
+
+    // Create an `AppStatus` instance from a JSON string
+    pub fn from_json(json_str: &str) -> Result<Self, Error> {
+        serde_json::from_str(json_str)
+    }
 }
 
 impl fmt::Display for AppStatus {
@@ -175,7 +192,11 @@ impl fmt::Display for CommandResponse {
             "Command Type".bold().cyan(),
             self.command_type,
             "Success".bold().cyan(),
-            if self.success { "Yes".green() } else { "No".red() },
+            if self.success {
+                "Yes".green()
+            } else {
+                "No".red()
+            },
             "Message".bold().cyan(),
             self.message.as_deref().unwrap_or("None")
         )
@@ -255,7 +276,6 @@ impl fmt::Display for UpdateApp {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AppMessage {
     Register(RegisterApp),
@@ -263,6 +283,18 @@ pub enum AppMessage {
     Update(UpdateApp),
     Response(CommandResponse),
     Command(Command),
+}
+
+impl fmt::Display for AppMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AppMessage::Register(register) => write!(f, "Register: {}", register),
+            AppMessage::Deregister(deregister) => write!(f, "Deregister: {}", deregister),
+            AppMessage::Update(update) => write!(f, "Update: {}", update),
+            AppMessage::Response(response) => write!(f, "Response: {}", response),
+            AppMessage::Command(command) => write!(f, "Command: {}", command),
+        }
+    }
 }
 
 // Function to save registered apps to a JSON file

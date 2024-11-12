@@ -2,7 +2,7 @@ use bincode;
 use colored::{Color, ColoredString, Colorize};
 use dusa_collection_utils::{errors::ErrorArrayItem, log, log::LogLevel};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fmt::{self, Debug, Display},
@@ -10,11 +10,7 @@ use std::{
     time::Duration,
     vec,
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpStream, UnixStream},
-    time::timeout,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
     encryption::{decrypt_data, encrypt_data},
@@ -484,7 +480,7 @@ where
     }
 
     // Sleep a second for unix socket issues
-    tokio::time::sleep(Duration::from_micros(500)).await;
+    // tokio::time::sleep(Duration::from_micros(500)).await;
     match read_until(&mut stream, EOL.as_bytes().to_vec()).await {
         Ok(response_buffer) => {
             if response_buffer.is_empty() {
@@ -509,8 +505,8 @@ where
                 match sidegrade {
                     true => {
                        return match proto {
-                            Proto::TCP => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade).await),
-                            Proto::UNIX => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade).await),
+                            Proto::TCP => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade)).await,
+                            Proto::UNIX => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade)).await,
                         };
                     }
                     false => {

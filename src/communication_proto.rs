@@ -457,8 +457,8 @@ pub async fn send_message<STREAM, DATA, RESPONSE>(
 ) -> Result<Result<ProtocolMessage<RESPONSE>, ProtocolStatus>, io::Error>
 where
     STREAM: AsyncReadExt + AsyncWriteExt + Unpin,
-    DATA: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
-    RESPONSE: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone,
+    DATA: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone + Unpin,
+    RESPONSE: serde::de::DeserializeOwned + std::fmt::Debug + serde::Serialize + Clone + Unpin,
 {
     let mut message: ProtocolMessage<DATA> = ProtocolMessage::new(flags, data.clone())?;
 
@@ -508,8 +508,10 @@ where
                 log!(LogLevel::Debug, "SideGrade requested");
                 match sidegrade {
                     true => {
-                        return send_message(stream, response_reserved, data, proto, sidegrade)
-                            .await
+                       return match proto {
+                            Proto::TCP => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade).await),
+                            Proto::UNIX => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade).await),
+                        };
                     }
                     false => {
                         log!(LogLevel::Info, "Sidegrade not allowed dropping connections");

@@ -14,6 +14,7 @@ pub mod users;
 pub mod communication_proto;
 pub mod network;
 pub mod aggregator;
+pub mod systemd;
 
 // // tests
 // #[path = "../src/tests/encryption_test.rs"]

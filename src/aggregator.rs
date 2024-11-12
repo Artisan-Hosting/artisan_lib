@@ -13,10 +13,10 @@ type ID = Stringy;
 // Command Type Enum
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandType {
-    Start(ID),
-    Stop(ID),
-    Restart(ID),
-    Status(ID),
+    Start,
+    Stop,
+    Restart,
+    Status,
     AllStatus,
     Custom(String),
 }
@@ -24,12 +24,12 @@ pub enum CommandType {
 impl fmt::Display for CommandType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CommandType::Start(id) => write!(f, "[{}] : {}", "Start".green(), id),
-            CommandType::Stop(id) => write!(f, "[{}] : {}", "Stop".red(), id),
-            CommandType::Restart(id) => write!(f, "[{}] : {}", "Restart".yellow(), id),
-            CommandType::Status(id) => write!(f, "[{}] : {}", "Status".cyan(), id),
+            CommandType::Start => write!(f, "{}", "Start".green()),
+            CommandType::Stop => write!(f, "{}", "Stop".red()),
+            CommandType::Restart => write!(f, "{}", "Restart".yellow()),
+            CommandType::Status => write!(f, "{}", "Status".cyan()),
+            CommandType::AllStatus => write!(f, "{}", "All Info".cyan()),
             CommandType::Custom(cmd) => write!(f, "{}: {}", "Custom".purple(), cmd),
-            CommandType::AllStatus => write!(f, "{}", "All Status".purple()),
         }
     }
 }
@@ -127,9 +127,14 @@ pub struct AppStatus {
 
 impl fmt::Display for AppStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let system = match self.system_application {
+            true => "YES".bold().green(),
+            false => "NO".bold().red(),
+        };
+
         write!(
             f,
-            "{}: {}, {}: {}, {}: {} seconds, {}: {}, {}: {}, {}: {}",
+            "{}: {}, {}: {}, {}: {} seconds, {}: {}, {}: {}, {}: {}, {} {}",
             "App ID".bold().cyan(),
             self.app_id,
             "Status".bold().cyan(),
@@ -144,7 +149,9 @@ impl fmt::Display for AppStatus {
                 .map(|m| m.to_string())
                 .unwrap_or_else(|| "None".to_string()),
             "Timestamp".bold().cyan(),
-            self.timestamp
+            self.timestamp,
+            "System App".bold().cyan(),
+            system,
         )
     }
 }

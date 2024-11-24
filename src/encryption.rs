@@ -1,16 +1,26 @@
+use dusa_collection_utils::log;
 use {
     dusa_collection_utils::{
         errors::{ErrorArrayItem, Errors, UnifiedResult},
         log::LogLevel,
-        log,
         stringy::Stringy,
     },
-    recs::{decrypt_raw, encrypt_raw, initialize},
-    std::sync::{atomic::{AtomicBool, Ordering}, Arc},
+    recs::{decrypt_raw, encrypt_raw, house_keeping, initialize},
+    std::{
+        sync::{
+            atomic::{AtomicBool, AtomicU8, Ordering},
+            Arc,
+        },
+        time::Duration,
+    },
+    tokio::time::sleep,
 };
 
 lazy_static::lazy_static! {
-    static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false)); 
+    static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    static ref cleaning_loop_initialized: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    static ref cleaning_calls: Arc<AtomicU8> = Arc::new(0.into());
+    static ref cleaning_lock: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
 pub trait Encryption {
@@ -36,61 +46,163 @@ pub async fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
 }
 
 pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
-    if !initialized.load(Ordering::Relaxed) {
-        initialize(true).await;
-        initialized.store(true, Ordering::Relaxed);
-    }
+    if let Err(err) = initialize_locker().await {
+        return UnifiedResult::new(Err(err));
+    };
 
-    match encrypt_raw(unsafe { String::from_utf8_unchecked(data.to_vec()) })
-        .await
-        .uf_unwrap()
-    {
-        Ok((key, data, count)) => UnifiedResult::new(Ok(format!("{}-{}-{}", key, data, count)
-            .as_bytes()
-            .to_vec())),
-        Err(e) => {
-            log!(LogLevel::Error, "{}", e);
+    let attempts: u8 = 5;
+    let mut tries: u8 = 0;
 
-            unimplemented!()
+    while tries <= attempts {
+        if execution_locked().await {
+            tries += 1;
+            tokio::time::sleep(Duration::from_millis(700)).await;
+            continue;
+        }
+
+        match encrypt_raw(unsafe { String::from_utf8_unchecked(data.to_vec()) })
+            .await
+            .uf_unwrap()
+        {
+            Ok((key, data, count)) => {
+                call_clean().await;
+
+                return UnifiedResult::new(Ok(format!("{}-{}-{}", data, key, count)
+                    .as_bytes()
+                    .to_vec()))
+            }
+            Err(e) => {
+                log!(LogLevel::Error, "{}", e);
+                call_clean().await;
+                unimplemented!()
+            }
         }
     }
+
+    return UnifiedResult::new(Err(ErrorArrayItem::new(
+        Errors::GeneralError,
+        "Attempted to many times to access recs, system busy".to_owned(),
+    )));
 }
+
 
 pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
-    if !initialized.load(Ordering::Relaxed) {
-        initialize(true).await;
-        initialized.store(true, Ordering::Relaxed);
-    }
-
-    let data_str = match std::str::from_utf8(data) {
-        Ok(s) => s,
-        Err(e) => {
-            log!(LogLevel::Error, "Invalid UTF-8 sequence: {}", e);
-            return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
-        }
+    if let Err(err) = initialize_locker().await {
+        return UnifiedResult::new(Err(err));
     };
 
-    let parts: Vec<&str> = data_str.splitn(3, '-').collect();
-    if parts.len() != 3 {
-        log!(LogLevel::Error, "Invalid input data format");
-        return UnifiedResult::new(Err(ErrorArrayItem::new(
-            Errors::InvalidType,
-            "Input data does not contain key, data, and count separated by '-'".to_string(),
-        )));
+    let attempts: u8 = 5;
+    let mut tries: u8 = 0;
+
+    while tries <= attempts {
+        if execution_locked().await {
+            tries += 1;
+            tokio::time::sleep(Duration::from_millis(700)).await;
+            continue;
+        }
+
+        let data_str = match std::str::from_utf8(data) {
+            Ok(s) => s,
+            Err(e) => {
+                log!(LogLevel::Error, "Invalid UTF-8 sequence: {}", e);
+                return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
+            }
+        };
+
+        let parts: Vec<&str> = data_str.splitn(3, '-').collect();
+        if parts.len() != 3 {
+            log!(LogLevel::Error, "Invalid input data format");
+            return UnifiedResult::new(Err(ErrorArrayItem::new(
+                Errors::InvalidType,
+                "Input data does not contain key, data, and count separated by '-'".to_string(),
+            )));
+        }
+
+        let key = parts[0].to_string();
+        let encrypted_data = parts[1].to_string();
+        let count = match parts[2].parse::<usize>() {
+            Ok(c) => c,
+            Err(e) => {
+                log!(LogLevel::Error, "Invalid count value: {}", e);
+                return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
+            }
+        };
+
+        match decrypt_raw(encrypted_data, key, count).uf_unwrap() {
+            Ok(data) => return UnifiedResult::new(Ok(data)),
+            Err(e) => return UnifiedResult::new(Err(e)),
+        }
     }
 
-    let key = parts[0].to_string();
-    let encrypted_data = parts[1].to_string();
-    let count = match parts[2].parse::<usize>() {
-        Ok(c) => c,
-        Err(e) => {
-            log!(LogLevel::Error, "Invalid count value: {}", e);
-            return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
-        }
-    };
+    return UnifiedResult::new(Err(ErrorArrayItem::new(
+        Errors::GeneralError,
+        "Attempted to many times to access recs, system busy".to_owned(),
+    )));
+}
 
-    match decrypt_raw(encrypted_data, key, count).uf_unwrap() {
-        Ok(data) => UnifiedResult::new(Ok(data)),
-        Err(e) => UnifiedResult::new(Err(e)),
+async fn execution_locked() -> bool {
+    let lock = cleaning_lock.load(Ordering::Relaxed);
+    if lock {
+        log!(LogLevel::Warn, "RECS locked for cleaning");
+    }
+    lock
+}
+
+async fn call_clean() {
+    let prev: u8 = cleaning_calls.fetch_add(1, Ordering::Relaxed);
+    log!(LogLevel::Trace, "Cleaning calls {} -> {}", prev, prev + 1);
+}
+
+async fn clean_loop() -> Result<(), ErrorArrayItem> {
+    cleaning_loop_initialized.store(true, Ordering::Relaxed);
+    loop {
+        if cleaning_calls.load(Ordering::Relaxed) == 0 {
+            log!(LogLevel::Trace, "Cleaning loop running with no jobs");
+            continue;
+        }
+
+        while cleaning_calls.load(Ordering::Relaxed) != 0 {
+            cleaning_lock.store(true, Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_millis(100)).await;            
+            house_keeping().await?;
+            cleaning_lock.store(false, Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_secs(2)).await;            
+            cleaning_calls.store(0, Ordering::Relaxed);
+        }
     }
 }
+
+async fn initialize_locker() -> Result<(), ErrorArrayItem> {
+    match initialized.load(Ordering::Relaxed) {
+        true => {
+            if !cleaning_loop_initialized.load(Ordering::Relaxed) {
+                tokio::spawn(clean_loop());
+            }
+            return Ok(());
+        }
+        false => {
+            initialize(true).await.uf_unwrap()?;
+            sleep(Duration::from_nanos(100)).await;
+            initialized.store(true, Ordering::Relaxed);
+            tokio::spawn(clean_loop());
+            cleaning_loop_initialized.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+}
+
+
+// The worst case for these timings is a error after ~3.5 seconds
+// let attempts: u8 = 5;
+// let mut tries: u8 = 0;
+// 
+// while tries <= attempts {
+//     if execution_locked().await {
+//         tries += 1;
+//         tokio::time::sleep(Duration::from_millis(700)).await;
+//         continue;
+//     }
+// 
+//     code()
+// 
+// }

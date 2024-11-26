@@ -39,6 +39,9 @@ pub struct AppState {
 
     // Configuration settings for the application
     pub config: AppConfig,
+
+    // Is a system application vs a client application
+    pub system_application: bool,
 }
 
 impl fmt::Display for AppState {

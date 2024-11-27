@@ -1,4 +1,5 @@
 use dusa_collection_utils::log;
+use tokio::sync::Notify;
 use {
     dusa_collection_utils::{
         errors::{ErrorArrayItem, Errors, UnifiedResult},
@@ -8,7 +9,7 @@ use {
     recs::{decrypt_raw, encrypt_raw, house_keeping, initialize},
     std::{
         sync::{
-            atomic::{AtomicBool, AtomicU8, Ordering},
+            atomic::{AtomicBool, Ordering},
             Arc,
         },
         time::Duration,
@@ -19,7 +20,7 @@ use {
 lazy_static::lazy_static! {
     static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     static ref cleaning_loop_initialized: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    static ref cleaning_calls: Arc<AtomicU8> = Arc::new(0.into());
+    static ref cleaning_call: Arc<Notify> = Arc::new(Notify::new());
     static ref cleaning_lock: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
@@ -50,7 +51,7 @@ pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
         return UnifiedResult::new(Err(err));
     };
 
-    let attempts: u8 = 5;
+    let attempts: u8 = 10;
     let mut tries: u8 = 0;
 
     while tries <= attempts {
@@ -69,7 +70,7 @@ pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
 
                 return UnifiedResult::new(Ok(format!("{}-{}-{}", data, key, count)
                     .as_bytes()
-                    .to_vec()))
+                    .to_vec()));
             }
             Err(e) => {
                 log!(LogLevel::Error, "{}", e);
@@ -85,13 +86,12 @@ pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     )));
 }
 
-
 pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     if let Err(err) = initialize_locker().await {
         return UnifiedResult::new(Err(err));
     };
 
-    let attempts: u8 = 5;
+    let attempts: u8 = 10;
     let mut tries: u8 = 0;
 
     while tries <= attempts {
@@ -118,13 +118,14 @@ pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
             )));
         }
 
-        let key = parts[0].to_string();
-        let encrypted_data = parts[1].to_string();
+        let key = parts[1].to_string();
+        let encrypted_data = parts[0].to_string();
         let count = match parts[2].parse::<usize>() {
             Ok(c) => c,
-            Err(e) => {
-                log!(LogLevel::Error, "Invalid count value: {}", e);
-                return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
+            Err(_e) => {
+                // log!(LogLevel::Error, "Invalid count value: {}", e);
+                1
+                // return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
             }
         };
 
@@ -141,7 +142,7 @@ pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
 }
 
 async fn execution_locked() -> bool {
-    let lock = cleaning_lock.load(Ordering::Relaxed);
+    let lock = cleaning_lock.load(Ordering::Acquire);
     if lock {
         log!(LogLevel::Warn, "RECS locked for cleaning");
     }
@@ -149,26 +150,24 @@ async fn execution_locked() -> bool {
 }
 
 async fn call_clean() {
-    let prev: u8 = cleaning_calls.fetch_add(1, Ordering::Relaxed);
-    log!(LogLevel::Trace, "Cleaning calls {} -> {}", prev, prev + 1);
+    cleaning_call.notify_one();
+    log!(LogLevel::Trace, "Recs clean called");
 }
 
 async fn clean_loop() -> Result<(), ErrorArrayItem> {
-    cleaning_loop_initialized.store(true, Ordering::Relaxed);
+    cleaning_loop_initialized.store(true, Ordering::Release);
     loop {
-        if cleaning_calls.load(Ordering::Relaxed) == 0 {
-            log!(LogLevel::Trace, "Cleaning loop running with no jobs");
-            continue;
+        tokio::select! {
+            _ = cleaning_call.notified() => {
+                cleaning_lock.store(true, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                if let Err(err) = house_keeping().await {
+                    log!(LogLevel::Error, "HouseKeeping: {}", err);
+                }
+                cleaning_lock.store(false, Ordering::SeqCst);
+            }
         }
-
-        while cleaning_calls.load(Ordering::Relaxed) != 0 {
-            cleaning_lock.store(true, Ordering::Relaxed);
-            tokio::time::sleep(Duration::from_millis(100)).await;            
-            house_keeping().await?;
-            cleaning_lock.store(false, Ordering::Relaxed);
-            tokio::time::sleep(Duration::from_secs(2)).await;            
-            cleaning_calls.store(0, Ordering::Relaxed);
-        }
+        sleep(Duration::from_secs(4)).await;
     }
 }
 
@@ -191,18 +190,17 @@ async fn initialize_locker() -> Result<(), ErrorArrayItem> {
     }
 }
 
-
 // The worst case for these timings is a error after ~3.5 seconds
 // let attempts: u8 = 5;
 // let mut tries: u8 = 0;
-// 
+//
 // while tries <= attempts {
 //     if execution_locked().await {
 //         tries += 1;
 //         tokio::time::sleep(Duration::from_millis(700)).await;
 //         continue;
 //     }
-// 
+//
 //     code()
-// 
+//
 // }

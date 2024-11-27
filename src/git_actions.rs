@@ -116,7 +116,8 @@ impl GitCredentials {
             Some(file) => {
                 if file.exists() {
                     let encrypted_credentials = Self::read_file(file)?;
-                    let decrypted_string = decrypt_text(encrypted_credentials).await?.replace('\n', "");
+                    let decrypted_string =
+                        decrypt_text(encrypted_credentials).await?.replace('\n', "");
                     let data: GitCredentials = serde_json::from_str(&decrypted_string)?;
                     Ok(data)
                 } else {
@@ -163,10 +164,11 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if serialization, encryption, or file writing fails.
-    pub async fn save(&self, file_path: &PathType) -> Result<(), ErrorArrayItem> {
-        // Convert PathType to Path
-        let binding = file_path.clone().to_path_buf();
-        let path = binding.as_path();
+    pub async fn save(&self, path: &PathType) -> Result<(), ErrorArrayItem> {
+        // if the array is empty we delete and re-create the empty file
+        if self.clone().to_vec().len() == 0 {
+            path.delete()?;
+        }
 
         // Serialize GitCredentials to JSON
         let json_data = serde_json::to_string(self).map_err(|e| {
@@ -247,7 +249,7 @@ impl GitCredentials {
     ///
     /// # Errors
     ///
-    /// Returns an `ErrorArrayItem` if saving new credentials fails.
+    /// Can't panic.
     pub async fn bootstrap_git_credentials() -> Result<GitCredentials, ErrorArrayItem> {
         match GitCredentials::new(None).await {
             Ok(creds) => Ok(creds),
@@ -258,6 +260,25 @@ impl GitCredentials {
                 Ok(default_creds)
             }
         }
+    }
+
+    /// Deletes the value at the 'index' in the git credentials array
+    /// The caller is still responsible for saving the array using '.save(&PathType)' after calling
+    pub async fn delete_item(&mut self, index: usize) -> Result<Self, ErrorArrayItem> {
+        let mut vec = self.clone().to_vec();
+
+        let vec_len = vec.len();
+
+        if index > vec_len {
+            return Err(ErrorArrayItem::new(
+                Errors::Git,
+                "The requested value to remove is out of bounds".to_owned(),
+            ));
+        }
+
+        vec.remove(index);
+
+        Ok(GitCredentials { auth_items: vec })
     }
 }
 

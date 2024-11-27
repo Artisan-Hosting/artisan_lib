@@ -1,7 +1,7 @@
 use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
-use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy, types::PathType, version::SoftwareVersion};
+use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy, version::SoftwareVersion};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 
@@ -48,7 +48,7 @@ pub struct AppConfig {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Aggregator {
     /// Socket path that the application will use
-    pub socket_path: PathType,
+    pub socket_path: String,
 
     /// Permissions for the socket
     pub socket_permission: Option<u32>,

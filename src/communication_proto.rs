@@ -7,7 +7,6 @@ use sha2::{Digest, Sha256};
 use std::{
     fmt::{self, Debug, Display},
     io::{self, Cursor, Read, Write},
-    time::Duration,
     vec,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -352,8 +351,7 @@ where
                     &Flags::ENCODED => decode_data(&payload).unwrap(),
                     &Flags::COMPRESSED => decompress_data(&payload)?,
                     &Flags::SIGNATURE => verify_checksum(payload),
-                    &Flags::NONE => payload,
-                    _ => unreachable!(),
+                    _ => payload,
                 };
             }
         }
@@ -462,6 +460,9 @@ where
         Proto::TCP => message.header.origin_address = get_local_ip().octets(),
         Proto::UNIX => message.header.origin_address = [0, 0, 0, 0],
     };
+
+    // Ensure that we send a header with empty reserved field
+    // message.header.reserved = Flags::NONE.bits();
 
     // Creating message bytes and appending eol
     let serialized_message: Vec<u8> = message.format().await?;

@@ -3,13 +3,17 @@ use dusa_collection_utils::log;
 use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use tokio::net::UnixStream;
 use std::{
     fmt,
     fs::{File, OpenOptions},
     io::{Read, Write},
 };
 
+use crate::communication_proto::{send_message, Flags, Proto};
 use crate::encryption::{decrypt_text, encrypt_text};
+use crate::state_persistence::AppState;
+use crate::timestamp::current_timestamp;
 
 pub const AGGREGATOR_PATH: &str = "/tmp/aggregator.recs";
 type ID = Stringy;
@@ -353,4 +357,50 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     let apps: Vec<AppStatus> = serde_json::from_str(&data)?;
     // let apps: Vec<RegisterApp> = serde_json::from_reader(reader)?;
     Ok(apps)
+}
+
+// function to register apps with the aggragator
+pub async fn register_app(app: &AppState) -> Result<(), ErrorArrayItem> {
+    log!(LogLevel::Trace, "Registering with aggregator");
+    let app = app.clone();
+
+    let app_message = AppMessage::Register(RegisterApp {
+        app_id: app.config.app_name.clone(),
+        app_name: app.config.app_name.to_string(),
+        expected_status: Status::Running,
+        system_application: true,
+        registration_timestamp: current_timestamp(),
+    });
+
+    match &app.config.aggregator {
+        Some(agg) => {
+            let mut stream = UnixStream::connect(agg.socket_path.clone()).await?;
+            let response = send_message::<UnixStream, AppMessage, AppMessage>(&mut stream, Flags::OPTIMIZED,  app_message, Proto::UNIX, true).await?;
+            match response {
+                Ok(message) => {
+                    let payload: AppMessage = message.get_payload().await;
+
+                    match payload {
+                        AppMessage::Response(command_response) => {
+                            if command_response.success {
+                                log!(LogLevel::Trace, "State updated with aggregator !");
+                            }
+                        },
+                        _ => log!(LogLevel::Warn, "Illegal response recieved while reporting status"),
+                    }
+
+                    Ok(())
+                },
+                Err(err) => {
+                    log!(LogLevel::Warn, "Updaitng app status with aggregator failed. Recieved {} from server", err);
+                    return  Ok(());
+                },
+            }
+        }
+
+        None => {
+            log!(LogLevel::Trace, "Aggragator not configured");
+            return Ok(())
+        },
+    }
 }

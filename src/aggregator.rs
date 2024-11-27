@@ -1,5 +1,6 @@
 use colored::Colorize;
-use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel,log, stringy::Stringy};
+use dusa_collection_utils::log;
+use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
 use std::{
@@ -117,7 +118,7 @@ pub struct AppStatus {
     pub app_id: ID,
     pub status: Status,
     pub uptime: Option<u64>,
-    pub error: Option<String>,
+    pub error: Option<Vec<ErrorArrayItem>>,
     pub metrics: Option<Metrics>,
     pub timestamp: u64,
     pub expected_status: Status,
@@ -132,13 +133,17 @@ impl AppStatus {
             Err(e) => {
                 log!(LogLevel::Error, "{}", e);
                 None
-            },
+            }
         }
     }
 
     // Create an `AppStatus` instance from a JSON string
     pub fn from_json(json_str: &str) -> Result<Self, Error> {
         serde_json::from_str(json_str)
+    }
+
+    pub unsafe fn to_string(&self) -> String {
+        serde_json::to_string(self).unwrap_unchecked()
     }
 }
 
@@ -159,7 +164,20 @@ impl fmt::Display for AppStatus {
             "Uptime".bold().cyan(),
             self.uptime.unwrap_or(0),
             "Error".bold().cyan(),
-            self.error.as_deref().unwrap_or("None"),
+            {
+                let mut data = String::new();
+
+                match self.error.clone() {
+                    Some(err) => {
+                        let errors = err.iter();
+                        for e in errors {
+                            data.push_str(&e.to_string());
+                        }
+                        data
+                    }
+                    None => "None".to_owned(),
+                }
+            },
             "Metrics".bold().cyan(),
             self.metrics
                 .as_ref()
@@ -253,7 +271,7 @@ impl fmt::Display for DeregisterApp {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UpdateApp {
     pub app_id: ID,
-    pub error: Option<String>,
+    pub error: Option<Vec<ErrorArrayItem>>,
     pub metrics: Option<Metrics>,
     pub status: Status,
     pub timestamp: u64,
@@ -269,7 +287,20 @@ impl fmt::Display for UpdateApp {
             "Status".bold().cyan(),
             self.status,
             "Error".bold().cyan(),
-            self.error.as_deref().unwrap_or("None"),
+            {
+                let mut data = String::new();
+
+                match self.error.clone() {
+                    Some(err) => {
+                        let errors = err.iter();
+                        for e in errors {
+                            data.push_str(&e.to_string());
+                        }
+                        data
+                    }
+                    None => "None".to_owned(),
+                }
+            },
             "Timestamp".bold().cyan(),
             self.timestamp
         )
@@ -320,7 +351,6 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     file.read_to_string(&mut encrypted_data)?;
     let data: Stringy = decrypt_text(Stringy::from(encrypted_data)).await?;
     let apps: Vec<AppStatus> = serde_json::from_str(&data)?;
-
     // let apps: Vec<RegisterApp> = serde_json::from_reader(reader)?;
     Ok(apps)
 }

@@ -1,10 +1,15 @@
 // Frequently used functions
-
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors}, log::{set_log_level, LogLevel}, log, types::PathType
+    errors::{ErrorArrayItem, Errors},
+    log,
+    log::{set_log_level, LogLevel},
+    types::PathType,
 };
+use tokio::net::UnixStream;
 
 use crate::{
+    aggregator::{AppMessage, Status, UpdateApp},
+    communication_proto::{send_message, Flags, Proto},
     state_persistence::{AppState, StatePersistence},
     timestamp::current_timestamp,
 };
@@ -13,6 +18,43 @@ use crate::{
 pub async fn update_state(state: &mut AppState, path: &PathType) {
     state.last_updated = current_timestamp();
     state.event_counter += 1;
+
+    // reporting to aggregator
+    if let Some(agg) = &state.config.aggregator {
+        if PathType::Content(agg.socket_path.clone()).exists() {
+            let app_message = AppMessage::Update(UpdateApp {
+                app_id: state.config.app_name.clone(),
+                error: Some(state.error_log.clone()),
+                metrics: None,
+                status: Status::Running,
+                timestamp: current_timestamp(),
+            });
+
+            if let Ok(mut stream) = UnixStream::connect(agg.socket_path.clone()).await {
+                if let Ok(message) = send_message::<UnixStream, AppMessage, AppMessage>(&mut stream, Flags::OPTIMIZED, app_message, Proto::UNIX, true).await {
+
+                    match message {
+                        Ok(response) => {
+                            let payload = response.get_payload().await;
+                            match payload {
+                                AppMessage::Response(command_response) => {
+                                    if command_response.success {
+                                        log!(LogLevel::Trace, "State updated with aggregator !");
+                                    }
+                                },
+                                _ => log!(LogLevel::Warn, "Illegal response recieved while reporting status"),
+                            }
+                        },
+                        Err(err) => {
+                            log!(LogLevel::Warn, "Updaitng app status with aggregator failed. Recieved {} from server", err);
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+    // saving the state info
     if let Err(err) = StatePersistence::save_state(state, path).await {
         log!(LogLevel::Error, "Failed to save state: {}", err);
         state.is_active = false;

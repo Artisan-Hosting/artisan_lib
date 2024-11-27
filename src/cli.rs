@@ -33,7 +33,7 @@ pub async fn get_encrypted_user_input(prompt: &str) -> Stringy {
 }
 
 /// Display options and capture the user's selection
-pub fn get_user_selection(options: &[&str]) -> usize {
+pub fn get_user_selection(options: &[String]) -> usize {
     // Display the options to the user
     for (i, option) in options.iter().enumerate() {
         println!("{}. {}", i + 1, option);

@@ -31,7 +31,7 @@ pub async fn update_state(state: &mut AppState, path: &PathType) {
             });
 
             if let Ok(mut stream) = UnixStream::connect(agg.socket_path.clone()).await {
-                if let Ok(message) = send_message::<UnixStream, AppMessage, AppMessage>(&mut stream, Flags::OPTIMIZED, app_message, Proto::UNIX, true).await {
+                if let Ok(message) = send_message::<UnixStream, AppMessage, AppMessage>(&mut stream, Flags::NONE, app_message, Proto::UNIX, true).await {
 
                     match message {
                         Ok(response) => {

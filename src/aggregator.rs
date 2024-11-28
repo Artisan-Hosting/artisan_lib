@@ -47,10 +47,11 @@ impl fmt::Display for CommandType {
 pub enum Status {
     Starting,
     Running,
-    Idle,
+    // Idle,
     Stopping,
     Stopped,
     Unknown,
+    Warning,
 }
 
 impl fmt::Display for Status {
@@ -58,10 +59,11 @@ impl fmt::Display for Status {
         let status_str = match self {
             Status::Starting => "Starting".blue(),
             Status::Running => "Running".green(),
-            Status::Idle => "Idle".yellow(),
+            // Status::Idle => "Idle".yellow(),
             Status::Stopping => "Stopping".red(),
             Status::Stopped => "Stopped".bold(),
             Status::Unknown => "Unknown".purple(),
+            Status::Warning => "Warning".purple(),
         };
         write!(f, "{}", status_str)
     }
@@ -375,7 +377,7 @@ pub async fn register_app(app: &AppState) -> Result<(), ErrorArrayItem> {
     match &app.config.aggregator {
         Some(agg) => {
             let mut stream = UnixStream::connect(agg.socket_path.clone()).await?;
-            let response = send_message::<UnixStream, AppMessage, AppMessage>(&mut stream, Flags::OPTIMIZED,  app_message, Proto::UNIX, true).await?;
+            let response = send_message::<UnixStream, AppMessage, AppMessage>(&mut stream, Flags::NONE,  app_message, Proto::UNIX, false).await?;
             match response {
                 Ok(message) => {
                     let payload: AppMessage = message.get_payload().await;

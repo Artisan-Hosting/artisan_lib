@@ -344,13 +344,14 @@ where
         // Deserialize and process payload
         let mut payload = payload_bytes.to_vec();
         let flags = Flags::from_bits_truncate(header.flags);
-        for flag in Self::ordered_flags().iter().rev() {
-            if flags.contains(*flag) {
+        for flag in Self::ordered_flags().iter().rev().cloned() {
+            if flags.contains(flag) {
                 payload = match flag {
-                    &Flags::ENCRYPTED => decrypt_data(&payload).await.unwrap(),
-                    &Flags::ENCODED => decode_data(&payload).unwrap(),
-                    &Flags::COMPRESSED => decompress_data(&payload)?,
-                    &Flags::SIGNATURE => verify_checksum(payload),
+                    Flags::ENCRYPTED => decrypt_data(&payload).await.unwrap(),
+                    Flags::ENCODED => decode_data(&payload).unwrap(),
+                    Flags::COMPRESSED => decompress_data(&payload)?,
+                    Flags::SIGNATURE => verify_checksum(payload),
+                    Flags::NONE => payload,
                     _ => payload,
                 };
             }

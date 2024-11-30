@@ -57,13 +57,13 @@ pub enum Status {
 impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let status_str = match self {
-            Status::Starting => "Starting".blue(),
-            Status::Running => "Running".green(),
+            Status::Starting => "Starting".bright_green(),
+            Status::Running => "Running".green().bold(),
             // Status::Idle => "Idle".yellow(),
-            Status::Stopping => "Stopping".red(),
-            Status::Stopped => "Stopped".bold(),
-            Status::Unknown => "Unknown".purple(),
-            Status::Warning => "Warning".purple(),
+            Status::Stopping => "Stopping".bright_red(),
+            Status::Stopped => "Stopped".red().bold(),
+            Status::Unknown => "Unknown".bright_cyan().bold(),
+            Status::Warning => "Warning".bright_yellow(),
         };
         write!(f, "{}", status_str)
     }
@@ -150,6 +150,10 @@ impl AppStatus {
 
     pub unsafe fn to_string(&self) -> String {
         serde_json::to_string(self).unwrap_unchecked()
+    }
+
+    pub fn get_id(&self) -> Stringy {
+        self.app_id.clone()
     }
 }
 

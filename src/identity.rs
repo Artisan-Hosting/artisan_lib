@@ -1,103 +1,148 @@
 use dusa_collection_utils::{
-    errors::ErrorArrayItem,
-    functions::{create_hash, truncate},
-    stringy::Stringy,
-    types::PathType,
-    log,
-    log::LogLevel,
+    errors::{ErrorArrayItem, Errors}, functions::{create_hash, truncate}, log::LogLevel, stringy::Stringy, types::PathType
 };
+use dusa_collection_utils::log;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
-    net::Ipv4Addr,
+    time::Duration,
 };
+use tokio::time::sleep;
 
 use crate::{
-    encryption::encrypt_text, git_actions::GitCredentials, network::get_local_ip, timestamp::{current_timestamp, format_unix_timestamp}
+    encryption::encrypt_text, timestamp::current_timestamp
 };
 
-pub const IDENTITYPATHSTR: &str = "/usr/local/identity";
-pub const HASH_LENGTH: usize = 14;
+pub const IDENTITYPATHSTR: &str = "/tmp/identity";
+pub const HASH_LENGTH: usize = 28;
+pub const CUSTOM_EPOCH: u64 = 1_047_587_400;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Identifier {
-    pub address: Ipv4Addr,
-    pub repositories: GitCredentials,
-    signature: Stringy,
+pub struct SnowflakeIDGenerator {
+    custom_epoch: u64,
+    datacenter_id: u8,
+    machine_id: u8,
+    sequence: u16,
+    last_timestamp: u64,
 }
 
-pub struct IdentityInfo {
-    /// An abridged version of the 'encrypted'
-    pub hash: Stringy,
-    pub encrypted: Stringy,
-}
+impl SnowflakeIDGenerator {
+    pub fn new(datacenter_id: u8, machine_id: u8) -> Result<Self, ()> {
+        if datacenter_id > 31 {
+            log!(LogLevel::Error, "Datacenter ID must be between 0 and 31");
+            return Err(());
+        }
 
-impl IdentityInfo {
-    pub async fn load() -> Result<Self, ErrorArrayItem> {
-        let identifier: Identifier = Identifier::load().await?;
-        let identifier_json: String = identifier.to_json()?;
-        let hash: Stringy = Stringy::from_string(truncate(&create_hash(identifier_json.clone()), HASH_LENGTH).to_owned());
-        let encrypted: Stringy = encrypt_text(Stringy::from_string(identifier_json.clone())).await?;
+        if machine_id > 31 {
+            log!(LogLevel::Error, "Machine ID must be between 0 and 31");
+            return Err(());
+        }
+
         Ok(Self {
-            hash,
-            encrypted,
+            custom_epoch: CUSTOM_EPOCH,
+            datacenter_id,
+            machine_id,
+            sequence: 0,
+            last_timestamp: 0,
         })
     }
 
-    // pub fn new(identity: Identifier) -> Result<Self, ErrorArrayItem> {
-    //     let encrypted: Stringy = encrypt_text(identity.to_encrypted_json()?)?;
-    //     let hash: Stringy =
-    //         Stringy::Immutable(truncate(&create_hash(encrypted.clone().to_string()), HASH_LENGTH).into());
+    fn wait_for_next_millis(last_timestamp: u64) -> u64 {
+        let mut timestamp = current_timestamp();
+        while timestamp <= last_timestamp {
+            timestamp = current_timestamp();
+        }
+        timestamp
+    }
 
-    //     Ok(Self { hash, encrypted })
+    pub async fn generate_id(&mut self) -> u64 {
+        let mut timestamp = current_timestamp();
+
+        if timestamp < self.last_timestamp {
+            sleep(Duration::from_millis(10)).await;
+            if timestamp < self.last_timestamp {
+                log!(
+                    LogLevel::Error,
+                    "Clock moved backwards. Refusing to generate ID."
+                );
+                return 0;
+            }
+        }
+
+        if timestamp == self.last_timestamp {
+            self.sequence = (self.sequence + 1) & 0xFFF; // 12 bits max
+            if self.sequence == 0 {
+                timestamp = Self::wait_for_next_millis(self.last_timestamp);
+            }
+        } else {
+            self.sequence = 0;
+        }
+
+        self.last_timestamp = timestamp;
+
+        // Construct the 64-bit ID
+        ((timestamp - self.custom_epoch) << 22)
+            | ((self.datacenter_id as u64) << 17)
+            | ((self.machine_id as u64) << 12)
+            | (self.sequence as u64)
+    }
+    
+    // fn make_transit_safe(&self) -> Stringy {
+
     // }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Identifier {
+    pub id: u64,
+    _signature: Stringy,
+}
+
 impl Identifier {
-    /// loads the identifier from disk, creates a new one if needed 
-    pub async  fn load() -> Result<Self, ErrorArrayItem> {
-        let identifier_path: PathType = PathType::Str(IDENTITYPATHSTR.into());
-        match identifier_path.exists() {
-            true => {
-                let identifier: Identifier = match Self::load_from_file() {
-                    Ok(loaded_data) => loaded_data,
-                    Err(err) => {
-                        log!(LogLevel::Error, "Error loading identifier: {}, creating new info", err);
-                        let new_identifier: Identifier = Self::new().await?;
-                        new_identifier.save_to_file()?;
-                        new_identifier
-                    },
-                };
-                Ok(identifier)
-            },
-            false => {
-                log!(LogLevel::Warn, "Couldn't load identifier creating new one");
-                let new_identifier: Identifier = Self::new().await?;
-                new_identifier.save_to_file()?;
-                return Ok(new_identifier)
-            },
-        }
+    fn generate_signature(id: u64) -> Stringy {
+        Stringy::from_string(truncate(&create_hash(format!("{}", id)), HASH_LENGTH).to_owned())
     }
 
-    /// Creates a new identifier based on IP and timestamp
     pub async fn new() -> Result<Self, ErrorArrayItem> {
-        let address: Ipv4Addr = get_local_ip();
-        let repositories: GitCredentials = match GitCredentials::new(None).await {
-            Ok(git_credentials) => git_credentials,
-            Err(e) => {
-                log!(LogLevel::Error, "Couldn't load git credentials");
-                log!(LogLevel::Error, "{}", e);
-                return Err(e)
-            },
-        };
-        let signature: Stringy = Stringy::Immutable(
-            create_hash(format_unix_timestamp(current_timestamp()).to_string()).into(),
-        );
-        Ok(Identifier {
-            address,
-            repositories,
-            signature,
+        // ! We're using the first 5 out of 31 randomly. incase we need to add order later
+        let datacenter_id = rand::thread_rng().gen_range(1..=5);
+        let machine_id = rand::thread_rng().gen_range(1..=5);
+
+        let mut big_id: SnowflakeIDGenerator = SnowflakeIDGenerator::new(datacenter_id, machine_id).map_err(
+            |_| ErrorArrayItem::new(Errors::GeneralError, "Error generating system id".to_owned()),
+        )?;
+
+        let id = big_id.generate_id().await;
+
+        Ok(Self {
+            id,
+            _signature: Self::generate_signature(id),
         })
+    }
+
+    pub async fn verify(&self) -> bool {
+        let given_signature = self._signature.clone();
+        let new_signature = Self::generate_signature(self.id);
+        return match given_signature == new_signature {
+            true => true,
+            false => false,
+        };
+    }
+
+    /// loads the identifier from disk, creates a new one if needed
+    pub async fn load() -> Result<Option<Self>, ErrorArrayItem> {
+        let identifier_path: PathType = PathType::Str(IDENTITYPATHSTR.into());
+        if identifier_path.exists() {
+            match Self::load_from_file() {
+                Ok(data) => return Ok(Some(data)),
+                Err(err) => {
+                    log!(LogLevel::Trace, "ERROR: Failed to load identy: {}", err);
+                    return Ok(None);
+                }
+            }
+        } else {
+            return Ok(None);
+        }
     }
 
     /// Save the identifier to a file
@@ -133,5 +178,13 @@ impl Identifier {
         })?;
         let encrypted_data = encrypt_text(Stringy::from_string(json_representation)).await?;
         Ok(encrypted_data)
+    }
+
+    pub fn display_id(&self) {
+        log!(LogLevel::Debug, "ID: {}", self.id);
+    }
+
+    pub fn display_sig(&self) {
+        log!(LogLevel::Debug, "SIG: {}", self._signature);
     }
 }

@@ -117,10 +117,14 @@ pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
                 "Input data does not contain key, data, and count separated by '-'".to_string(),
             )));
         }
-
-        let key = parts[1].to_string();
-        let encrypted_data = parts[0].to_string();
-        let count = match parts[2].parse::<usize>() {
+        
+        let cleaned_parts: Vec<String> = parts.iter()
+            .map(|part| part.replace("-", "")) 
+            .collect();
+        
+        let key = cleaned_parts[1].to_string();
+        let encrypted_data = cleaned_parts[0].to_string();
+        let count = match cleaned_parts[2].parse::<usize>() {
             Ok(c) => c,
             Err(_e) => {
                 // log!(LogLevel::Error, "Invalid count value: {}", e);
@@ -160,7 +164,8 @@ async fn clean_loop() -> Result<(), ErrorArrayItem> {
         tokio::select! {
             _ = cleaning_call.notified() => {
                 cleaning_lock.store(true, Ordering::SeqCst);
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                // * Anything less than 250 may start cleaning before operations have finished
                 if let Err(err) = house_keeping().await {
                     log!(LogLevel::Error, "HouseKeeping: {}", err);
                 }
@@ -190,8 +195,8 @@ async fn initialize_locker() -> Result<(), ErrorArrayItem> {
     }
 }
 
-// The worst case for these timings is a error after ~3.5 seconds
-// let attempts: u8 = 5;
+// The worst case for these timings is a error after ~6.8 seconds
+// let attempts: u8 = 10;
 // let mut tries: u8 = 0;
 //
 // while tries <= attempts {

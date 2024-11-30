@@ -1,4 +1,6 @@
+use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use dusa_collection_utils::errors::ErrorArrayItem;
 use get_if_addrs::get_if_addrs;
 
 use get_if_addrs::IfAddr;
@@ -21,6 +23,17 @@ pub fn get_local_ip() -> Ipv4Addr {
     }
     
     Ipv4Addr::LOCALHOST // Return loopback address if no suitable non-loopback address is found
+}
+
+pub async fn get_external_ip() -> Result<IpAddr, ErrorArrayItem> {
+    let url = "https://api.ipify.org"; // Alternatively, use "https://ifconfig.me"
+    let response = reqwest::get(url).await?.text().await?;
+
+    // Attempt to parse the response into an IpAddr
+    match response.trim().parse::<IpAddr>() {
+        Ok(ip) => Ok(ip),
+        Err(err) => Err(ErrorArrayItem::from(err)),
+    }
 }
 
 pub fn get_header_version() -> u8 {

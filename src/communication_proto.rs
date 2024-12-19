@@ -466,7 +466,9 @@ where
     // message.header.reserved = Flags::NONE.bits();
 
     // Creating message bytes and appending eol
-    let serialized_message: Vec<u8> = message.format().await?;
+    let mut serialized_message: Vec<u8> = message.to_bytes().await?;
+    serialized_message.extend(EOL.as_bytes());
+
     log!(LogLevel::Trace, "message serialized for sending");
 
     // sending the data

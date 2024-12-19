@@ -1,3 +1,5 @@
+use dusa_collection_utils::version::VersionCode;
+
 // This is a successor of the artisan_platform
 pub mod cli;
 pub mod common;
@@ -18,6 +20,9 @@ pub mod systemd;
 pub mod dns;
 pub mod portal;
 pub mod control;
+pub mod version;
+
+pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 
 // // tests
 // #[path = "../src/tests/encryption_test.rs"]

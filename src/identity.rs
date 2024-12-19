@@ -92,7 +92,7 @@ impl SnowflakeIDGenerator {
     // }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Identifier {
     pub id: u64,
     _signature: Stringy,

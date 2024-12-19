@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::{io, thread};
 use tokio::process::{Child, Command};
 
+use crate::aggregator::Metrics;
 use crate::resource_monitor::ResourceMonitorLock;
 use crate::{
     common::{log_error, update_state},
@@ -28,7 +29,9 @@ impl SupervisedChild {
     /// Default creates a complex service that captures the std.
     /// This also spawns in its own process group
     pub async fn new(command: Command) -> Result<Self, ErrorArrayItem> {
-        spawn_complex_process(command, true, true).await
+        let super_child = spawn_complex_process(command, true, true).await?;
+        super_child.monitor_usage().await;
+        return Ok(super_child)
     }
 
     pub async fn get_pid(&self) -> Result<u32, ErrorArrayItem> {
@@ -73,7 +76,11 @@ impl SupervisedChild {
     /// Spawns a endless loop that updates the resource monitor from /proc
     pub async fn monitor_usage(&self) {
         let d0: &ResourceMonitorLock = &self.monitor;
-        d0.update_loop(30).await; // 30 secs so most trys with timeouts will work
+        d0.monitor(2).await; // 2 secs so most trys with timeouts will work
+    }
+
+    pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
+        self.monitor.get_metrics().await
     }
 
     // pub async fn check_usage(&self) {
@@ -196,11 +203,10 @@ pub async fn spawn_simple_process(
             );
             state.data = String::from("Process spawned");
             state.event_counter += 1;
-            update_state(state, state_path).await;
+            update_state(state, state_path, None).await;
             Ok(child_process)
         }
         Err(e) => {
-            // let err_ref = e.get_ref().unwrap();
 
             log!(
                 LogLevel::Error,
@@ -286,15 +292,10 @@ pub async fn spawn_complex_process(
             Ok(supervised_child)
         }
         Err(error) => {
-            let error_ref = match error.get_ref() {
-                Some(err_ref) => err_ref,
-                None => unimplemented!(),
-            };
-
             log!(
                 LogLevel::Error,
                 "Failed to spawn child process: {}",
-                error_ref
+                error
             );
 
             return Err(ErrorArrayItem::from(error));

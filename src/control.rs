@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::Duration;
 use tokio::{sync::Notify, time::timeout};
 
+#[derive(Debug)]
 pub struct ToggleControl {
     paused: AtomicBool,
     notify_pause: Notify,

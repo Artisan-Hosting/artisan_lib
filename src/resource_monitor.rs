@@ -175,48 +175,15 @@ impl ResourceMonitor {
         Ok(cpu_usage as f32)
     }
 
-    pub fn get_child_pids(&self) -> Result<Vec<i32>, ErrorArrayItem> {
-        let pid_vec = all_processes()
-            // .unwrap()
-            .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?
-            // .into_iter()
-            .filter_map(|process| {
-                let process = process.ok()?;
-                if process.stat().ok()?.ppid == self.pid {
-                    Some(process.pid)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(pid_vec)
-    }
-
-    pub fn aggregate_tree_usage_recursive(
-        pid: i32,
-        visited: &mut HashSet<i32>,
-    ) -> Result<(f32, f32), ErrorArrayItem> {
-        // Check if the PID has already been processed
+    pub fn collect_all_pids(pid: i32, visited: &mut HashSet<i32>) -> Result<Vec<i32>, ErrorArrayItem> {
         if !visited.insert(pid) {
-            log!(LogLevel::Trace, "PID {} already visited, skipping...", pid);
-            return Ok((0.0, 0.0));
+            return Ok(vec![]);
         }
-
-        let mut total_cpu = 0.0;
-        let mut total_ram = 0.0;
-
-        // Get the current process
-        if let Ok(process) = Process::new(pid) {
-            if let Ok((cpu, ram)) = Self::get_usage(process) {
-                total_cpu += cpu;
-                total_ram += ram;
-            }
-        } else {
-            log!(LogLevel::Error, "Failed to get process info for PID {}", pid);
-        }
-
-        // Get all child PIDs of the current process
+    
+        // Start with the current PID
+        let mut pids = vec![pid];
+    
+        // Get child PIDs
         let child_pids = all_processes()
             .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?
             .filter_map(|process| {
@@ -228,22 +195,56 @@ impl ResourceMonitor {
                 }
             })
             .collect::<Vec<i32>>();
-
-        // Recursively calculate resource usage for child processes
+    
         for child_pid in child_pids {
-            let (child_cpu, child_ram) = Self::aggregate_tree_usage_recursive(child_pid, visited)?;
-            total_cpu += child_cpu;
-            total_ram += child_ram;
+            if !visited.contains(&child_pid) {
+                pids.extend(Self::collect_all_pids(child_pid, visited)?);
+            }
         }
+    
+        Ok(pids)
+    }
 
+    pub fn collect_usage(pids: Vec<i32>) -> Result<(f32, f32), ErrorArrayItem> {
+        let mut total_cpu = 0.0;
+        let mut total_ram = 0.0;
+    
+        for pid in pids {
+            if let Ok(process) = Process::new(pid) {
+                if let Ok((cpu, ram)) = Self::get_usage(process) {
+                    total_cpu += cpu;
+                    total_ram += ram;
+                    log!(LogLevel::Trace, "PID {} - CPU: {}, RAM: {:.4} MB", pid, cpu, ram / 1024.0);
+                }
+            } else {
+                log!(LogLevel::Error, "Failed to get process info for PID {}", pid);
+            }
+        }
+    
         Ok((total_cpu, total_ram))
     }
 
-    pub fn aggregate_tree_usage(&self) -> Result<(f32, f32), ErrorArrayItem> { // cpu, ram, number of children
+    pub fn aggregate_tree_usage(&self) -> Result<(f32, f32), ErrorArrayItem> {
         let mut visited = HashSet::new();
-        let vals = Self::aggregate_tree_usage_recursive(self.pid, &mut visited)?;
-        Ok(((vals.0 / visited.len() as f32), vals.1))
+    
+        // Step 1: Collect all PIDs starting from `self.pid`
+        let mut all_pids = Self::collect_all_pids(self.pid, &mut visited)?;
+        log!(LogLevel::Trace, "All collected PIDs: {:?}", all_pids);
+        all_pids.remove(0);
+    
+        // Step 2: Collect usage information for all PIDs
+        let (total_cpu, total_ram) = Self::collect_usage(all_pids)?;
+    
+        // Step 3: Return the aggregated data
+        let average_cpu = if visited.is_empty() {
+            0.0
+        } else {
+            total_cpu / visited.len() as f32
+        };
+    
+        Ok((average_cpu, total_ram))
     }
+    
 }
 
 // ! LEGACY for welcome

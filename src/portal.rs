@@ -19,6 +19,7 @@ pub enum PortalMessage {
 pub struct ClientInfo {
     pub identity: Identifier,
     pub address: IpAddr,
+    pub last_updated: u64,
 }
 
 impl ClientInfo {

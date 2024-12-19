@@ -8,14 +8,14 @@ use dusa_collection_utils::{
 use tokio::net::UnixStream;
 
 use crate::{
-    aggregator::{AppMessage, Status, UpdateApp},
+    aggregator::{AppMessage, Metrics, Status, UpdateApp},
     communication_proto::{send_message, Flags, Proto},
     state_persistence::{AppState, StatePersistence},
     timestamp::current_timestamp,
 };
 
 // Update state and persist it to disk
-pub async fn update_state(state: &mut AppState, path: &PathType) {
+pub async fn update_state(state: &mut AppState, path: &PathType, metrics: Option<Metrics>) {
     state.last_updated = current_timestamp();
     state.event_counter += 1;
 
@@ -25,7 +25,7 @@ pub async fn update_state(state: &mut AppState, path: &PathType) {
             let app_message = AppMessage::Update(UpdateApp {
                 app_id: state.config.app_name.clone(),
                 error: Some(state.error_log.clone()),
-                metrics: None,
+                metrics,
                 status: Status::Running,
                 timestamp: current_timestamp(),
             });
@@ -74,14 +74,14 @@ pub async fn wind_down_state(state: &mut AppState, state_path: &PathType) {
         Errors::GeneralError,
         "Wind down requested check logs".to_owned(),
     ));
-    update_state(state, &state_path).await;
+    update_state(state, &state_path, None).await;
 }
 
 // Log an error and update the state
 pub async fn log_error(state: &mut AppState, error: ErrorArrayItem, path: &PathType) {
     log!(LogLevel::Error, "{}", error);
     state.error_log.push(error);
-    update_state(state, path).await;
+    update_state(state, path, None).await;
 }
 
 // setting the log level to debug

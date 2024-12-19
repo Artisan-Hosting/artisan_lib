@@ -96,8 +96,7 @@ impl fmt::Display for Command {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metrics {
     pub cpu_usage: f32,
-    pub memory_usage: u64,
-    // disk_usage: Option<u64>,
+    pub memory_usage: f32,
     pub other: Option<String>,
 }
 

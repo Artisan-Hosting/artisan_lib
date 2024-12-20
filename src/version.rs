@@ -11,7 +11,7 @@ pub fn aml_version() -> Version {
     let patch = parts.next().unwrap_or("0");
 
     Version {
-        number: Stringy::from_string(format!("{}.{}.{}", major, minor, patch)),
+        number: Stringy::from(format!("{}.{}.{}", major, minor, patch)),
         code: RELEASEINFO,
     }
 }
@@ -30,7 +30,7 @@ pub fn str_to_version(cargo_pkg_version: &str, release_code: Option<VersionCode>
     };
 
     Version {
-        number: Stringy::from_string(format!("{}.{}.{}", major, minor, patch)),
+        number: Stringy::from(format!("{}.{}.{}", major, minor, patch)),
         code,
     }   
 }

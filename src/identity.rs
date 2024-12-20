@@ -100,7 +100,7 @@ pub struct Identifier {
 
 impl Identifier {
     fn generate_signature(id: u64) -> Stringy {
-        Stringy::from_string(truncate(&create_hash(format!("{}", id)), HASH_LENGTH).to_owned())
+        Stringy::from(truncate(&create_hash(format!("{}", id)), HASH_LENGTH))
     }
 
     pub async fn new() -> Result<Self, ErrorArrayItem> {
@@ -176,7 +176,7 @@ impl Identifier {
                 e.to_string(),
             )
         })?;
-        let encrypted_data = encrypt_text(Stringy::from_string(json_representation)).await?;
+        let encrypted_data = encrypt_text(Stringy::from(json_representation)).await?;
         Ok(encrypted_data)
     }
 

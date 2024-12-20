@@ -99,7 +99,7 @@ impl AppConfig {
             .set_default("app_name", "MyApp")?
             .set_default("version", version)?
             .set_default("max_cpu_usage", 0)?
-            .set_default("max_ram_usage", 1024)?
+            .set_default("max_ram_usage", 0)?
             // .set_default("max_connections", 100)?
             .set_default("environment", "development")?
             .set_default("debug_mode", false)?

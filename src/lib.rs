@@ -17,7 +17,6 @@ pub mod communication_proto;
 pub mod network;
 pub mod aggregator;
 pub mod systemd;
-pub mod dns;
 pub mod portal;
 pub mod control;
 pub mod version;

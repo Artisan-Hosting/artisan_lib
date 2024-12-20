@@ -254,15 +254,15 @@ pub fn get_system_stats() -> HashMap<Stringy, Stringy> {
 
     let mut stats: HashMap<Stringy, Stringy> = HashMap::new();
     stats.insert(
-        Stringy::new("CPU Usage"),
-        Stringy::from_string(format!("{:.2}%", system.global_cpu_usage())),
+        Stringy::from("CPU Usage"),
+        Stringy::from(format!("{:.2}%", system.global_cpu_usage())),
     );
     stats.insert(
-        Stringy::new("Total RAM"),
-        Stringy::from_string(format!("{} MB", system.total_memory() / 1024)),
+        Stringy::from("Total RAM"),
+        Stringy::from(format!("{} MB", system.total_memory() / 1024)),
     );
     stats.insert(
-        Stringy::new("Used RAM"),
+        Stringy::from("Used RAM"),
         Stringy::from(
             format!("{} MB", system.used_memory() / 1024000)
                 .trim_end_matches('0')
@@ -270,20 +270,20 @@ pub fn get_system_stats() -> HashMap<Stringy, Stringy> {
         ),
     );
     stats.insert(
-        Stringy::new("Total Swap"),
-        Stringy::from_string(format!("{} MB", system.total_swap() / 1024)),
+        Stringy::from("Total Swap"),
+        Stringy::from(format!("{} MB", system.total_swap() / 1024)),
     );
     stats.insert(
-        Stringy::new("Used Swap"),
-        Stringy::from_string(
+        Stringy::from("Used Swap"),
+        Stringy::from(
             format!("{} MB", system.used_swap() / 1024000)
                 .trim_end_matches('0')
                 .to_string(),
         ),
     );
     stats.insert(
-        Stringy::new("Hostname"),
-        Stringy::from_string(format!("{:?}", gethostname())),
+        Stringy::from("Hostname"),
+        Stringy::from(format!("{:?}", gethostname())),
     );
 
     stats

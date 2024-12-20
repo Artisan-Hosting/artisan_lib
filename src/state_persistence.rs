@@ -203,7 +203,7 @@ impl StatePersistence {
         let toml_str: Stringy = toml::to_string(state)?.into();
         let state_data = encrypt_text(toml_str)
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg))?;
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg.to_string()))?;
         fs::write(path, state_data.to_string())?;
         Ok(())
     }

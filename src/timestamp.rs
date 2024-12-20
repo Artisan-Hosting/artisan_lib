@@ -38,5 +38,5 @@ pub fn format_unix_timestamp(timestamp: u64) -> Stringy {
         "Error in computing time".to_string()
     };
 
-    return Stringy::from_string(data);
+    return Stringy::from(data);
 }

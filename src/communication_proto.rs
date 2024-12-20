@@ -1,6 +1,7 @@
 use bincode;
 use colored::{Color, ColoredString, Colorize};
-use dusa_collection_utils::{errors::ErrorArrayItem, log, log::LogLevel};
+use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, version::Version};
+use dusa_collection_utils::log;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,7 +17,7 @@ use crate::{
     network::{get_header_version, get_local_ip},
 };
 
-const HEADER_VERSION_LEN: usize = 1; // u8
+const HEADER_VERSION_LEN: usize = 2; // u16
 const HEADER_FLAGS_LEN: usize = 1; // u8
 const HEADER_PAYLOAD_LENGTH_LEN: usize = 2; // u16
 const HEADER_RESERVED_LEN: usize = 1; // u8
@@ -152,7 +153,7 @@ bitflags::bitflags! {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProtocolHeader {
-    pub version: u8,
+    pub version: u16,
     pub flags: u8,
     pub payload_length: u16,
     pub reserved: u8,
@@ -162,10 +163,11 @@ pub struct ProtocolHeader {
 
 impl fmt::Display for ProtocolHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let version: Version = Version::decode(self.version);
         write!(
             f,
             "{}\n{}\n{}\n{}\n{}\n{}\n",
-            format!("Version:          {}", self.version).bold().green(),
+            format!("Library Version:  {}", version).bold().green(),
             format!(
                 "Flags:            {:#010b} ({})",
                 self.flags,
@@ -298,9 +300,9 @@ where
         // Manually deserialize the header fields
         let mut cursor = Cursor::new(header_bytes);
 
-        let mut version_bytes: [u8; 1] = [0u8; 1];
+        let mut version_bytes: [u8; 2] = [0u8; 2];
         read_with_std_io(&mut cursor, &mut version_bytes)?;
-        let version = u8::from_be_bytes(version_bytes);
+        let version = u16::from_be_bytes(version_bytes);
 
         let mut flags_bytes: [u8; 1] = [0u8; 1];
         read_with_std_io(&mut cursor, &mut flags_bytes)?;
@@ -332,14 +334,6 @@ where
             origin_address,
         };
         log!(LogLevel::Debug, "Recieved header \n{}", header);
-
-        // ? This as before sidegrades used the reserved fieled to re request data
-        // if header.reserved != Reserved::NONE.bits() {
-        //     return Err(io::Error::new(
-        //         io::ErrorKind::InvalidData,
-        //         "Reserved field must be zero",
-        //     ));
-        // }
 
         // Deserialize and process payload
         let mut payload = payload_bytes.to_vec();
@@ -501,7 +495,7 @@ where
 
             let response_reserved: Flags = Flags::from_bits_truncate(response.header.reserved);
 
-            let _response_version: u8 = response.header.version;
+            let _response_version: u16 = response.header.version;
             // TODO add version calculations
 
             if response_status.expect(ProtocolStatus::SIDEGRADE) {

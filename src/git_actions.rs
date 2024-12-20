@@ -176,7 +176,7 @@ impl GitCredentials {
         })?;
 
         // Encrypt the JSON data
-        let encrypted_data = encrypt_text(Stringy::new(&json_data)).await?;
+        let encrypted_data = encrypt_text(Stringy::from(&json_data)).await?;
 
         // Write the encrypted data to the file
         let mut file = OpenOptions::new()
@@ -229,7 +229,7 @@ impl GitCredentials {
         let mut file = File::open(file_path)?;
         let mut file_contents = String::new();
         file.read_to_string(&mut file_contents)?;
-        Ok(Stringy::new(&file_contents.replace('\n', "")))
+        Ok(Stringy::from(&file_contents.replace('\n', "")))
     }
 
     /// Adds a new `GitAuth` item to the credentials.

@@ -15,7 +15,7 @@ pub fn get_user_input(prompt: &str) -> Stringy {
     io::stdin()
         .read_line(&mut input)
         .expect("Failed to read input");
-    Stringy::new(input.trim()) // Remove any trailing newline or spaces
+    Stringy::from(input.trim()) // Remove any trailing newline or spaces
 }
 
 /// Capture user input from the terminal and encrypts it

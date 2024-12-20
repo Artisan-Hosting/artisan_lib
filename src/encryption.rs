@@ -33,7 +33,7 @@ pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     let data_bytes = data.as_bytes().to_vec();
     let plain_bytes = encrypt_data(&data_bytes).await.uf_unwrap()?;
 
-    let text = Stringy::from_string(String::from_utf8(plain_bytes)?);
+    let text = Stringy::from(String::from_utf8(plain_bytes)?);
     Ok(text)
 }
 

@@ -26,8 +26,8 @@ impl ClientInfo {
     pub fn get_stringy(&self) -> Stringy {
         let data = format!("{}_-_{}", self.address, self.identity.id);
         let hash = create_hash(data);
-        let result = truncate(&hash, 20).to_owned();
-        return Stringy::from(result);
+        let result = truncate(&*hash, 20).to_owned();
+        return result;
     }
 }
 
@@ -42,7 +42,7 @@ impl ProjectInfo {
     pub fn get_stringy(&self) -> Stringy {
         let data = format!("{}-{}-{}", self.identity.id, self.project_id, self.project_data.timestamp);
         let hash = create_hash(data);
-        let result = truncate(&hash, 20).to_owned();
-        return Stringy::from(result);
+        let result = truncate(&*hash, 20).to_owned();
+        return result;
     }
 }

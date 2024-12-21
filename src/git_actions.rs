@@ -308,10 +308,10 @@ impl GitAuth {
 
     /// Generates the ais_id for a given project.
     pub fn generate_id(&self) -> Stringy {
-        Stringy::from(truncate(
-            &create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
+        truncate(
+            &*create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
             8,
-        ))
+        )
     }
 }
 
@@ -693,7 +693,7 @@ pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
 pub fn generate_git_project_id(auth: &GitAuth) -> Stringy {
     let hash_input = format!("{}-{}-{}", auth.branch, auth.repo, auth.user);
     let hash = create_hash(hash_input);
-    let truncated_hash = truncate(&hash, 8);
+    let truncated_hash = truncate(&*hash, 8);
     truncated_hash.into()
 }
 

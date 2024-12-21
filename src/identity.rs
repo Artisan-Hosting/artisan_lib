@@ -100,7 +100,7 @@ pub struct Identifier {
 
 impl Identifier {
     fn generate_signature(id: u64) -> Stringy {
-        Stringy::from(truncate(&create_hash(format!("{}", id)), HASH_LENGTH))
+        truncate(&*create_hash(format!("{}", id)), HASH_LENGTH)
     }
 
     pub async fn new() -> Result<Self, ErrorArrayItem> {

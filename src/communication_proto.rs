@@ -1,10 +1,12 @@
 use bincode;
 use colored::{Color, ColoredString, Colorize};
+use dusa_collection_utils::stringy::Stringy;
 use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, version::Version};
 use dusa_collection_utils::log;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::net::IpAddr;
 use std::{
     fmt::{self, Debug, Display},
     io::{self, Cursor, Read, Write},
@@ -12,6 +14,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::version::aml_version;
 use crate::{
     encryption::{decrypt_data, encrypt_data},
     network::{get_header_version, get_local_ip},
@@ -35,53 +38,81 @@ pub const HEADER_LENGTH: usize = HEADER_VERSION_LEN
 pub const EOL: &str = "-EOL-";
 
 bitflags::bitflags! {
-    #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct ProtocolStatus: u8 {
+        // Status Flags
         const OK        = 0b0000_0001;
         const ERROR     = 0b0000_0010;
         const WAITING   = 0b0000_0100;
-        const TIMEDOUT  = 0b0000_1000;
-        const MALFORMED = 0b0001_0000;
-        const SIDEGRADE = 0b1001_0010;
-        const REFUSED   = 0b0100_0010;
-        const RESERVED  = 0b0010_0000;
-        // Add other statuses as needed up to 8 bits
+        
+        // Error Flags
+        const MALFORMED = 0b0001_0000; // The message fit what we were expecting but was trash
+        const REFUSED   = 0b0010_0000; // Don't retry
+        const RESERVED  = 0b0100_0000; // Reciver needs to parse reserved field
+        const VERSION   = 0b1000_0000; // The version communicated is the problem
+
+        // Invalid Version Flags
+
+        /// Way out of date. The connection 
+        const OUTOFBAND = Self::ERROR.bits() | Self::REFUSED.bits() | Self::VERSION.bits();
+
+        /// Not the current version but we can support you.
+        const NOTINBAND = Self::OK.bits() | Self::VERSION.bits();
+
+        // Sidegrade
+
+        /// A request to change the flags the message was send with based on the reserved field
+        const SIDEGRADE = Self::WAITING.bits() | Self::MALFORMED.bits() | Self::RESERVED.bits();
+
+        // Time codes
+
+        /// We connected to the client and started data and the they gohsted us
+        const TIMEDOUT = Self::ERROR.bits() | Self::WAITING.bits();
+        
+        /// For uses like discovery where the target maynot exist
+        const GAVEUP   = Self::OK.bits() | Self::WAITING.bits();
+
+        /// Using the reserved field. tells client within X seconds I'll send the response to your query
+        const WAITSEC  = Self::OK.bits() | Self::WAITING.bits() | Self::RESERVED.bits();
     }
 }
 
 impl ProtocolStatus {
-    fn get_status_color(&self) -> Color {
+    pub fn has_flag(&self, flag: ProtocolStatus) -> bool {
+        self.contains(flag)
+    }
+
+    pub fn is_error(&self) -> bool {
+        self.contains(ProtocolStatus::ERROR)
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.contains(ProtocolStatus::OK)
+    }
+
+    pub fn is_waiting(&self) -> bool {
+        self.contains(ProtocolStatus::WAITING)
+    }
+    
+    pub fn get_status_color(&self) -> Color {
         match *self {
             ProtocolStatus::OK => Color::Green,
             ProtocolStatus::ERROR => Color::Red,
             ProtocolStatus::WAITING => Color::Yellow,
-            ProtocolStatus::RESERVED => Color::Blue,
-            ProtocolStatus::SIDEGRADE => Color::Blue,
-            ProtocolStatus::TIMEDOUT => Color::BrightYellow,
-            ProtocolStatus::MALFORMED => Color::BrightYellow,
             _ => Color::White,
         }
-    }
-
-    pub fn expect(&self, val: ProtocolStatus) -> bool {
-        // Checks if `self` contains exactly the same flags as `val`
-        *self == val
     }
 }
 
 impl fmt::Display for ProtocolStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let status_description = match *self {
+        let description = match *self {
             ProtocolStatus::OK => "OK",
             ProtocolStatus::ERROR => "Error",
             ProtocolStatus::WAITING => "Waiting",
-            ProtocolStatus::RESERVED => "Reserved",
-            ProtocolStatus::SIDEGRADE => "Client requested different flags",
-            ProtocolStatus::TIMEDOUT => "Timed Out",
-            ProtocolStatus::MALFORMED => "Malformed Response",
             _ => "Unknown",
         };
-        write!(f, "{}", status_description.color(self.get_status_color()))
+        write!(f, "{}", description)
     }
 }
 
@@ -164,6 +195,12 @@ pub struct ProtocolHeader {
 impl fmt::Display for ProtocolHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let version: Version = Version::decode(self.version);
+        
+        let origin_addr: Stringy = match self.get_origin_ip() == IpAddr::V4([0, 0, 0, 0].into()) {
+            true => Stringy::from("Internal"),
+            false => Stringy::from(self.get_origin_ip().to_string()),
+        };
+        
         write!(
             f,
             "{}\n{}\n{}\n{}\n{}\n{}\n",
@@ -188,7 +225,7 @@ impl fmt::Display for ProtocolHeader {
             )
             .bold()
             .red(),
-            format!("Origin Address:   {}", self.get_origin_ip())
+            format!("Origin Address:   {}", origin_addr)
                 .bold()
                 .cyan(),
         )
@@ -442,7 +479,7 @@ pub async fn send_message<STREAM, DATA, RESPONSE>(
     flags: Flags,
     data: DATA,
     proto: Proto,
-    sidegrade: bool,
+    insecure: bool,
 ) -> Result<Result<ProtocolMessage<RESPONSE>, ProtocolStatus>, io::Error>
 where
     STREAM: AsyncReadExt + AsyncWriteExt + Unpin,
@@ -495,16 +532,23 @@ where
 
             let response_reserved: Flags = Flags::from_bits_truncate(response.header.reserved);
 
-            let _response_version: u16 = response.header.version;
-            // TODO add version calculations
+            let response_version: Version = Version::decode(response.header.version);
 
-            if response_status.expect(ProtocolStatus::SIDEGRADE) {
+            let in_band = Version::compare_versions(&aml_version(), &response_version);
+
+            if !insecure {
+                if !in_band {
+                    return Ok(Err(ProtocolStatus::NOTINBAND))
+                }
+            }
+            
+            if response_status.has_flag(ProtocolStatus::SIDEGRADE) {
                 log!(LogLevel::Debug, "SideGrade requested");
-                match sidegrade {
+                match insecure {
                     true => {
                        return match proto {
-                            Proto::TCP => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade)).await,
-                            Proto::UNIX => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, sidegrade)).await,
+                            Proto::TCP => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, insecure)).await,
+                            Proto::UNIX => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, insecure)).await,
                         };
                     }
                     false => {

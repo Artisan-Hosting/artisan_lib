@@ -99,6 +99,7 @@ impl ProtocolStatus {
             ProtocolStatus::OK => Color::Green,
             ProtocolStatus::ERROR => Color::Red,
             ProtocolStatus::WAITING => Color::Yellow,
+            ProtocolStatus::SIDEGRADE => Color::BrightMagenta,
             _ => Color::White,
         }
     }
@@ -110,6 +111,7 @@ impl fmt::Display for ProtocolStatus {
             ProtocolStatus::OK => "OK",
             ProtocolStatus::ERROR => "Error",
             ProtocolStatus::WAITING => "Waiting",
+            ProtocolStatus::SIDEGRADE => "SideGrade",
             _ => "Unknown",
         };
         write!(f, "{}", description)

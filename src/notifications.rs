@@ -6,10 +6,9 @@ use dusa_collection_utils::{
     stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
+use simple_comms::{network::send_receive::send_message, protocol::{flags::Flags, proto::Proto, status::ProtocolStatus}};
 use std::fmt;
 use tokio::net::TcpStream;
-
-use crate::communication_proto::{send_message, Flags, Proto, ProtocolStatus};
 
 const MAIL_ADDRESS: &str = "45.137.192.70:1827";
 

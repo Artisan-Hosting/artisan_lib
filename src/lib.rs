@@ -13,7 +13,6 @@ pub mod resource_monitor;
 pub mod state_persistence;
 pub mod timestamp;
 pub mod users;
-pub mod communication_proto;
 pub mod network;
 pub mod aggregator;
 pub mod systemd;

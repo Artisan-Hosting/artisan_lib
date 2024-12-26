@@ -3,6 +3,9 @@ use dusa_collection_utils::log;
 use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use simple_comms::network::send_receive::send_message;
+use simple_comms::protocol::flags::Flags;
+use simple_comms::protocol::proto::Proto;
 use tokio::net::UnixStream;
 use std::{
     fmt,
@@ -10,7 +13,6 @@ use std::{
     io::{Read, Write},
 };
 
-use crate::communication_proto::{send_message, Flags, Proto};
 use crate::encryption::{decrypt_text, encrypt_text};
 use crate::state_persistence::AppState;
 use crate::timestamp::current_timestamp;

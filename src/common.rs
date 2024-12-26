@@ -5,11 +5,11 @@ use dusa_collection_utils::{
     log::{set_log_level, LogLevel},
     types::PathType,
 };
+use simple_comms::{network::send_receive::send_message, protocol::{flags::Flags, proto::Proto}};
 use tokio::net::UnixStream;
 
 use crate::{
     aggregator::{AppMessage, Metrics, Status, UpdateApp},
-    communication_proto::{send_message, Flags, Proto},
     state_persistence::{AppState, StatePersistence},
     timestamp::current_timestamp,
 };

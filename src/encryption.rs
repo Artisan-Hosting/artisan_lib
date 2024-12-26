@@ -24,11 +24,6 @@ lazy_static::lazy_static! {
     static ref cleaning_lock: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
-pub trait Encryption {
-    fn encrypt_text(&self, data: Stringy) -> Result<Stringy, ErrorArrayItem>;
-    fn decrypt_text(&self, data: Stringy) -> Result<Stringy, ErrorArrayItem>;
-}
-
 pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     let data_bytes = data.as_bytes().to_vec();
     let plain_bytes = encrypt_data(&data_bytes).await.uf_unwrap()?;
@@ -172,7 +167,7 @@ async fn clean_loop() -> Result<(), ErrorArrayItem> {
                 cleaning_lock.store(false, Ordering::SeqCst);
             }
         }
-        sleep(Duration::from_secs(4)).await;
+        sleep(Duration::from_secs(6)).await;
     }
 }
 

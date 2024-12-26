@@ -1,42 +1,10 @@
 use std::error::Error;
 use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use dusa_collection_utils::errors::ErrorArrayItem;
 use dusa_collection_utils::log;
 use dusa_collection_utils::log::LogLevel;
-use get_if_addrs::get_if_addrs;
-use get_if_addrs::IfAddr;
 use trust_dns_resolver::{config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts}, AsyncResolver};
 
 use crate::version::aml_version;
-
-pub fn get_local_ip() -> Ipv4Addr {
-    let if_addrs = match get_if_addrs() {
-        Ok(addrs) => addrs,
-        Err(_) => return Ipv4Addr::LOCALHOST, // Return loopback address if interface fetching fails
-    };
-    
-    for iface in if_addrs {
-        if let IfAddr::V4(v4_addr) = iface.addr {
-            if !v4_addr.ip.is_loopback() { // Filter out loopback addresses
-                return v4_addr.ip;
-            }
-        }
-    }
-    
-    Ipv4Addr::LOCALHOST // Return loopback address if no suitable non-loopback address is found
-}
-
-pub async fn get_external_ip() -> Result<IpAddr, ErrorArrayItem> {
-    let url = "https://api.ipify.org"; // Alternatively, use "https://ifconfig.me"
-    let response = reqwest::get(url).await?.text().await?;
-
-    // Attempt to parse the response into an IpAddr
-    match response.trim().parse::<IpAddr>() {
-        Ok(ip) => Ok(ip),
-        Err(err) => Err(ErrorArrayItem::from(err)),
-    }
-}
 
 pub async fn resolve_url(url: &str, resolver_addr: Option<IpAddr>) -> Result<Option<Vec<IpAddr>>, Box<dyn Error>> {
     // Configure the resolver to use Cloudflare's DNS

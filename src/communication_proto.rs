@@ -1,9 +1,10 @@
 use bincode;
 use colored::{Color, ColoredString, Colorize};
+use dusa_collection_utils::log;
 use dusa_collection_utils::stringy::Stringy;
 use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, version::Version};
-use dusa_collection_utils::log;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::IpAddr;
@@ -14,11 +15,11 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
+
+use crate::network::{get_header_version, get_local_ip};
 use crate::version::aml_version;
-use crate::{
-    encryption::{decrypt_data, encrypt_data},
-    network::{get_header_version, get_local_ip},
-};
 
 const HEADER_VERSION_LEN: usize = 2; // u16
 const HEADER_FLAGS_LEN: usize = 1; // u8
@@ -26,6 +27,7 @@ const HEADER_PAYLOAD_LENGTH_LEN: usize = 2; // u16
 const HEADER_RESERVED_LEN: usize = 1; // u8
 const HEADER_STATUS_LEN: usize = 1; // u8 for ProtocolStatus
 const HEADER_ORIGIN_ADDRESS_LEN: usize = 4; // [u8; 4] for IPv4 address
+const HEADER_ENCRYPTION_KEY_LEN: usize = 32; // [u8; 32] for the 256 bit key
 
 // Calculate the fixed header length
 pub const HEADER_LENGTH: usize = HEADER_VERSION_LEN
@@ -33,7 +35,8 @@ pub const HEADER_LENGTH: usize = HEADER_VERSION_LEN
     + HEADER_PAYLOAD_LENGTH_LEN
     + HEADER_RESERVED_LEN
     + HEADER_STATUS_LEN
-    + HEADER_ORIGIN_ADDRESS_LEN;
+    + HEADER_ORIGIN_ADDRESS_LEN
+    + HEADER_ENCRYPTION_KEY_LEN;
 
 pub const EOL: &str = "-EOL-";
 
@@ -44,7 +47,7 @@ bitflags::bitflags! {
         const OK        = 0b0000_0001;
         const ERROR     = 0b0000_0010;
         const WAITING   = 0b0000_0100;
-        
+
         // Error Flags
         const MALFORMED = 0b0001_0000; // The message fit what we were expecting but was trash
         const REFUSED   = 0b0010_0000; // Don't retry
@@ -53,7 +56,7 @@ bitflags::bitflags! {
 
         // Invalid Version Flags
 
-        /// Way out of date. The connection 
+        /// Way out of date. The connection
         const OUTOFBAND = Self::ERROR.bits() | Self::REFUSED.bits() | Self::VERSION.bits();
 
         /// Not the current version but we can support you.
@@ -68,7 +71,7 @@ bitflags::bitflags! {
 
         /// We connected to the client and started data and the they gohsted us
         const TIMEDOUT = Self::ERROR.bits() | Self::WAITING.bits();
-        
+
         /// For uses like discovery where the target maynot exist
         const GAVEUP   = Self::OK.bits() | Self::WAITING.bits();
 
@@ -93,7 +96,7 @@ impl ProtocolStatus {
     pub fn is_waiting(&self) -> bool {
         self.contains(ProtocolStatus::WAITING)
     }
-    
+
     pub fn get_status_color(&self) -> Color {
         match *self {
             ProtocolStatus::OK => Color::Green,
@@ -192,20 +195,21 @@ pub struct ProtocolHeader {
     pub reserved: u8,
     pub status: u8, // Changed from u16 to u8
     pub origin_address: [u8; 4],
+    pub encryption_key: [u8; 32], // 256-bit AES-GCM key
 }
 
 impl fmt::Display for ProtocolHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let version: Version = Version::decode(self.version);
-        
+
         let origin_addr: Stringy = match self.get_origin_ip() == IpAddr::V4([0, 0, 0, 0].into()) {
             true => Stringy::from("Internal"),
             false => Stringy::from(self.get_origin_ip().to_string()),
         };
-        
+
         write!(
             f,
-            "{}\n{}\n{}\n{}\n{}\n{}\n",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
             format!("Library Version:  {}", version).bold().green(),
             format!(
                 "Flags:            {:#010b} ({})",
@@ -214,6 +218,16 @@ impl fmt::Display for ProtocolHeader {
             )
             .bold()
             .blue(),
+            format!(
+                "Payload Key:      {}",
+                if self.encryption_key == [0u8; 32] {
+                    "No Key Set".to_string()
+                } else {
+                    format!("{}", hex::encode(self.encryption_key))
+                }
+            )
+            .bold()
+            .purple(),
             format!("Payload Length:   {}", self.payload_length)
                 .bold()
                 .purple(),
@@ -227,9 +241,7 @@ impl fmt::Display for ProtocolHeader {
             )
             .bold()
             .red(),
-            format!("Origin Address:   {}", origin_addr)
-                .bold()
-                .cyan(),
+            format!("Origin Address:   {}", origin_addr).bold().cyan(),
         )
     }
 }
@@ -265,6 +277,7 @@ where
             reserved: reserved.bits(),
             status: ProtocolStatus::OK.bits(), // Set initial status
             origin_address,
+            encryption_key: [0u8; 32],
         };
 
         Ok(Self { header, payload })
@@ -287,13 +300,17 @@ where
         let mut payload_bytes = bincode::serialize(&self.payload)
             .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
 
+        // Generate a random key for AES-GCM encryption
+        let mut encryption_key: [u8; 32] = [0u8; 32];
+        generate_key(&mut encryption_key);
+
         let flags = Flags::from_bits_truncate(self.header.flags);
         for flag in Self::ordered_flags() {
             if flags.contains(flag.clone()) {
                 payload_bytes = match flag {
                     Flags::COMPRESSED => compress_data(&payload_bytes)?,
                     Flags::ENCODED => encode_data(&payload_bytes),
-                    Flags::ENCRYPTED => encrypt_data(&payload_bytes).await.unwrap(),
+                    Flags::ENCRYPTED => encrypt_with_aes_gcm(&payload_bytes, &encryption_key)?,
                     Flags::SIGNATURE => generate_checksum(&mut payload_bytes),
                     _ => payload_bytes,
                 };
@@ -311,7 +328,12 @@ where
         header_bytes.extend(&self.header.reserved.to_be_bytes());
         header_bytes.extend(&self.header.status.to_be_bytes()); // Updated
         header_bytes.extend(&self.header.origin_address);
-        log!(LogLevel::Debug, "Generated header \n{}", self.header);
+        if flags.contains(Flags::ENCRYPTED) {
+            header_bytes.extend(&encryption_key); // Append the encryption key
+        } else {
+            header_bytes.extend([0u8; 32]); // appened 0's to satify the key legnth
+        }
+        // log!(LogLevel::Debug, "Generated header \n{}", self.header);
 
         // Combine header and payload
         let mut buffer = Vec::with_capacity(HEADER_LENGTH + payload_bytes.len());
@@ -364,6 +386,9 @@ where
         let mut origin_address: [u8; 4] = [0u8; 4];
         read_with_std_io(&mut cursor, &mut origin_address)?;
 
+        let mut encryption_key = [0u8; 32];
+        read_with_std_io(&mut cursor, &mut encryption_key)?;
+
         let header: ProtocolHeader = ProtocolHeader {
             version,
             flags,
@@ -371,6 +396,7 @@ where
             reserved,
             status: status.bits(),
             origin_address,
+            encryption_key,
         };
         log!(LogLevel::Debug, "Recieved header \n{}", header);
 
@@ -380,7 +406,7 @@ where
         for flag in Self::ordered_flags().iter().rev().cloned() {
             if flags.contains(flag) {
                 payload = match flag {
-                    Flags::ENCRYPTED => decrypt_data(&payload).await.unwrap(),
+                    Flags::ENCRYPTED => decrypt_with_aes_gcm(&payload, &encryption_key)?,
                     Flags::ENCODED => decode_data(&payload).unwrap(),
                     Flags::COMPRESSED => decompress_data(&payload)?,
                     Flags::SIGNATURE => verify_checksum(payload),
@@ -476,6 +502,43 @@ pub fn decode_data(data: &[u8]) -> Result<Vec<u8>, ErrorArrayItem> {
     hex::decode(hex_string).map_err(|err| ErrorArrayItem::from(err))
 }
 
+fn encrypt_with_aes_gcm(data: &[u8], key: &[u8; 32]) -> io::Result<Vec<u8>> {
+    let cipher = Aes256Gcm::new(key.into());
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    cipher
+        .encrypt(&nonce, data)
+        .map(|ciphertext| [nonce.to_vec(), ciphertext].concat())
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Encryption error: {:?}", e)))
+}
+
+fn decrypt_with_aes_gcm(data: &[u8], key: &[u8; 32]) -> io::Result<Vec<u8>> {
+    let cipher = Aes256Gcm::new(key.into());
+
+    // Ensure the data is at least the size of a nonce
+    if data.len() < 12 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Data too short to contain a valid nonce",
+        ));
+    }
+
+    // Split the data into nonce and ciphertext
+    let (nonce_bytes, ciphertext) = data.split_at(12); // Nonce is 12 bytes for AES-GCM
+    let nonce = Nonce::from_slice(nonce_bytes); // Create nonce from the extracted bytes
+
+    // Decrypt the ciphertext
+    cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Decryption error: {:?}", e)))
+}
+
+fn generate_key(buffer: &mut [u8]) {
+    let mut rng = rand::thread_rng(); // Create a random number generator
+    for byte in buffer.iter_mut() {
+        *byte = rng.gen(); // Fill each byte with random data
+    }
+}
+
 pub async fn send_message<STREAM, DATA, RESPONSE>(
     mut stream: &mut STREAM,
     flags: Flags,
@@ -540,17 +603,35 @@ where
 
             if !insecure {
                 if !in_band {
-                    return Ok(Err(ProtocolStatus::NOTINBAND))
+                    return Ok(Err(ProtocolStatus::NOTINBAND));
                 }
             }
-            
+
             if response_status.has_flag(ProtocolStatus::SIDEGRADE) {
                 log!(LogLevel::Debug, "SideGrade requested");
                 match insecure {
                     true => {
-                       return match proto {
-                            Proto::TCP => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, insecure)).await,
-                            Proto::UNIX => Box::pin(send_message::<STREAM, DATA, RESPONSE>(stream, response_reserved, data, proto, insecure)).await,
+                        return match proto {
+                            Proto::TCP => {
+                                Box::pin(send_message::<STREAM, DATA, RESPONSE>(
+                                    stream,
+                                    response_reserved,
+                                    data,
+                                    proto,
+                                    insecure,
+                                ))
+                                .await
+                            }
+                            Proto::UNIX => {
+                                Box::pin(send_message::<STREAM, DATA, RESPONSE>(
+                                    stream,
+                                    response_reserved,
+                                    data,
+                                    proto,
+                                    insecure,
+                                ))
+                                .await
+                            }
                         };
                     }
                     false => {
@@ -596,8 +677,8 @@ where
             match auto_reply {
                 true => {
                     send_empty_ok(stream, proto).await?;
-                    return Ok(message)
-                },
+                    return Ok(message);
+                }
                 false => return Ok(message),
             }
         }
@@ -605,10 +686,9 @@ where
             log!(LogLevel::Error, "Deserialization error: {}", err);
             send_empty_err(stream, proto).await?;
             return Err(io::Error::new(io::ErrorKind::InvalidData, err));
-        },
+        }
     }
 }
-
 
 // * Sending and recieving helpers
 pub async fn create_response(status: ProtocolStatus) -> Result<Vec<u8>, io::Error> {

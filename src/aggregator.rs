@@ -17,7 +17,7 @@ use crate::encryption::{decrypt_text, encrypt_text};
 use crate::state_persistence::AppState;
 use crate::timestamp::current_timestamp;
 
-pub const AGGREGATOR_PATH: &str = "/tmp/aggregator.recs";
+pub const AGGREGATOR_PATH: &str = "/tmp/.manager.recs";
 type ID = Stringy;
 
 // Command Type Enum

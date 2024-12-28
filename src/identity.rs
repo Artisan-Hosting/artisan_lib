@@ -14,7 +14,7 @@ use crate::{
     encryption::encrypt_text, timestamp::current_timestamp
 };
 
-pub const IDENTITYPATHSTR: &str = "/tmp/identity";
+pub const IDENTITYPATHSTR: &str = "/opt/artisan/identity";
 pub const HASH_LENGTH: usize = 28;
 pub const CUSTOM_EPOCH: u64 = 1_047_587_400;
 

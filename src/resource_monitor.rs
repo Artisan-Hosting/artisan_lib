@@ -1,87 +1,66 @@
-// resource_monitor.rs
 use dusa_collection_utils::{
     errors::{ErrorArrayItem, Errors},
-    log,
     log::LogLevel,
-    rwarc::LockWithTimeout,
-    stringy::Stringy,
+    log,
+    rwarc::LockWithTimeout, stringy::Stringy,
 };
-use gethostname::gethostname;
 use procfs::process::{all_processes, Process};
+use gethostname::gethostname;
+use sysinfo::System;
 use std::{
     collections::{HashMap, HashSet},
-    fs::File,
-    io::{self, Read},
-    thread,
+    io::{self, BufRead},
     time::Duration,
 };
-use sysinfo::System;
+use tokio::time::sleep;
 
 use crate::aggregator::Metrics;
 
-pub struct ResourceMonitorLock(LockWithTimeout<ResourceMonitor>);
+pub struct ResourceMonitorLock(pub LockWithTimeout<ResourceMonitor>);
 
 impl ResourceMonitorLock {
-    pub fn new(pid: i32) -> Result<Self, Box<dyn std::error::Error>> {
-        let resource_monitor: ResourceMonitor = ResourceMonitor::new(pid)?;
-        let monitor_lock: ResourceMonitorLock =
-            ResourceMonitorLock(LockWithTimeout::new(resource_monitor));
-        Ok(monitor_lock)
+    pub fn new(pid: i32) -> Result<Self, ErrorArrayItem> {
+        let resource_monitor = ResourceMonitor::new(pid)?;
+        Ok(ResourceMonitorLock(LockWithTimeout::new(resource_monitor)))
     }
 
     pub async fn monitor(&self, delay: u64) {
-        let new_monitor_lock: ResourceMonitorLock = self.clone();
+        let monitor_lock = self.clone();
         tokio::spawn(async move {
             loop {
-                let mut monitor_lock = match new_monitor_lock.0.try_write_with_timeout(None).await {
-                    Ok(new_monitor) => new_monitor,
+                match monitor_lock.0.try_write_with_timeout(None).await {
+                    Ok(mut monitor_lock) => {
+                        if let Err(e) = monitor_lock.update_state() {
+                            log!(LogLevel::Error, "Failed to update monitor state: {}", e);
+                            break;
+                        }
+                    }
                     Err(err) => {
-                        log!(LogLevel::Error, "Error locking the child: {}", err);
+                        log!(LogLevel::Error, "Error locking monitor: {}", err);
                         break;
                     }
-                };
-
-                let new_process: ResourceMonitor = match ResourceMonitor::new(monitor_lock.pid) {
-                    Ok(process) => process,
-                    Err(e) => {
-                        log!(LogLevel::Error, "Error getting process state: {}", e);
-                        break;
-                    }
-                };
-
-                // Aggregate usage for all processes in the tree
-                if let Ok((total_cpu, total_ram)) = new_process.aggregate_tree_usage() {
-                    monitor_lock.cpu = total_cpu;
-                    monitor_lock.ram = total_ram;
                 }
-
-                drop(monitor_lock);
-                log!(LogLevel::Trace, "Process monitor updated information");
-
-                thread::sleep(Duration::from_secs(delay));
+                sleep(Duration::from_secs(delay)).await;
             }
         });
     }
 
-    pub fn clone(&self) -> Self {
-        let data = self;
-        let cloned_data = data.0.clone();
-        return ResourceMonitorLock(cloned_data);
-    }
-
-    pub async fn print_usage(&self) {
-        let d0 = self.0.try_read().await.unwrap();
-        println!("ram: {}", d0.ram);
-        println!("cpu: {}", d0.cpu);
-    }
-
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
-        let child_data = self.0.try_read().await?;
+        let monitor = self.0.try_read().await.map_err(|_| {
+            ErrorArrayItem::new(
+                Errors::LockWithTimeoutRead,
+                "Failed to read lock".to_string(),
+            )
+        })?;
         Ok(Metrics {
-            cpu_usage: child_data.cpu,
-            memory_usage: child_data.ram,
+            cpu_usage: monitor.cpu,
+            memory_usage: monitor.ram,
             other: None,
         })
+    }
+
+    pub fn clone(&self) -> Self {
+        ResourceMonitorLock(self.0.clone())
     }
 }
 
@@ -90,100 +69,85 @@ pub struct ResourceMonitor {
     pub pid: i32,
     pub ram: f32,
     pub cpu: f32,
-    pub state: procfs::process::Stat,
 }
 
 impl ResourceMonitor {
-    pub fn new(pid: i32) -> Result<Self, Box<dyn std::error::Error>> {
-        let process = Process::new(pid)?;
-        let state = process.stat()?;
-        let usage = Self::get_usage(process)?;
-        let cpu = usage.0;
-        let ram = usage.1;
-        Ok(ResourceMonitor {
-            pid,
-            ram,
-            cpu,
-            state,
-        })
+    pub fn new(pid: i32) -> Result<Self, ErrorArrayItem> {
+        let process = Process::new(pid).map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?;
+        let (cpu, ram) = Self::get_usage(&process)?;
+        Ok(ResourceMonitor { pid, ram, cpu })
     }
 
-    pub fn get_usage(process: Process) -> Result<(f32, f32), Box<dyn std::error::Error>> {
-        let stat = process.stat()?;
+    pub fn update_state(&mut self) -> Result<(), ErrorArrayItem> {
+        let process = Process::new(self.pid)
+            .map_err(|_| ErrorArrayItem::new(Errors::GeneralError, "Failed to read process"))?;
+        let (cpu, ram) = Self::get_usage(&process)?;
+        self.cpu = cpu;
+        self.ram = ram;
+        Ok(())
+    }
 
-        // Check if the process still exists
+    fn get_usage(process: &Process) -> Result<(f32, f32), ErrorArrayItem> {
+        let stat = process.stat().map_err(|_| {
+            ErrorArrayItem::new(Errors::GeneralError, "Failed to retrieve process stat")
+        })?;
+
         if !process.is_alive() {
-            log!(
-                LogLevel::Error,
-                "Process PID {} is no longer alive",
-                process.pid
-            );
+            log!(LogLevel::Warn, "Process {} is no longer alive", process.pid);
             return Ok((0.0, 0.0));
         }
 
-        let raw_memory = process.statm()?.resident as f32;
-        log!(
-            LogLevel::Trace,
-            "Raw memory for PID {}: {}",
-            process.pid,
-            raw_memory
-        );
-
-        let mut memory = raw_memory * 4096.00;
-        memory /= 1024.00;
-        memory /= 1024.00; // Memory in MB
-        log!(
-            LogLevel::Trace,
-            "Calculated memory for PID {}: {} MB",
-            process.pid,
-            memory
-        );
+        let memory = process
+            .statm()
+            .map(|statm| (statm.resident as f32 * 4096.0) / (1024.0 * 1024.0))
+            .unwrap_or(0.0);
 
         let cpu_usage = Self::calculate_cpu_usage(&stat)?;
         Ok((cpu_usage, memory))
     }
 
-    pub fn calculate_cpu_usage(
-        stat: &procfs::process::Stat,
-    ) -> Result<f32, Box<dyn std::error::Error>> {
-        let utime = stat.utime;
-        let stime = stat.stime;
-        let cutime = stat.cutime;
-        let cstime = stat.cstime;
-        let total_time = utime + stime + cutime as u64 + cstime as u64;
+    fn calculate_cpu_usage(stat: &procfs::process::Stat) -> Result<f32, ErrorArrayItem> {
+        let total_time = stat.utime + stat.stime + stat.cutime as u64 + stat.cstime as u64;
+        let start_time = stat.starttime as f64;
 
-        let start_time = stat.starttime;
+        let mut uptime = String::new();
+        io::BufReader::new(std::fs::File::open("/proc/uptime").map_err(|e| {
+            ErrorArrayItem::new(
+                Errors::GeneralError,
+                format!("Failed to open /proc/uptime: {}", e),
+            )
+        })?)
+        .read_line(&mut uptime)
+        .map_err(|e| {
+            ErrorArrayItem::new(Errors::GeneralError, format!("Failed to read uptime: {}", e))
+        })?;
 
-        let mut file = File::open("/proc/uptime")?;
-        let mut uptime_str = String::new();
-        file.read_to_string(&mut uptime_str)?;
-        let uptime: f64 = uptime_str
+        let system_uptime = uptime
             .split_whitespace()
             .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse uptime"))?
-            .parse()?;
+            .ok_or_else(|| ErrorArrayItem::new(Errors::GeneralError, "Missing uptime data"))?
+            .parse::<f64>()
+            .map_err(|e| {
+                ErrorArrayItem::new(Errors::GeneralError, format!("Invalid uptime format: {}", e))
+            })?;
 
-        let ticks_per_second = procfs::ticks_per_second() as f64;
-        let process_uptime = uptime - (start_time as f64 / ticks_per_second);
-
+        let process_uptime = system_uptime - (start_time / procfs::ticks_per_second() as f64);
         if process_uptime <= 0.0 {
             return Ok(0.0);
         }
 
-        let cpu_usage = (total_time as f64 / ticks_per_second) / process_uptime * 20.0;
-
-        Ok(cpu_usage as f32)
+        Ok((total_time as f64 / process_uptime) as f32)
     }
 
-    pub fn collect_all_pids(pid: i32, visited: &mut HashSet<i32>) -> Result<Vec<i32>, ErrorArrayItem> {
+    pub fn collect_all_pids(
+        pid: i32,
+        visited: &mut HashSet<i32>,
+    ) -> Result<Vec<i32>, ErrorArrayItem> {
         if !visited.insert(pid) {
             return Ok(vec![]);
         }
-    
-        // Start with the current PID
+
         let mut pids = vec![pid];
-    
-        // Get child PIDs
         let child_pids = all_processes()
             .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?
             .filter_map(|process| {
@@ -195,56 +159,62 @@ impl ResourceMonitor {
                 }
             })
             .collect::<Vec<i32>>();
-    
+
         for child_pid in child_pids {
             if !visited.contains(&child_pid) {
                 pids.extend(Self::collect_all_pids(child_pid, visited)?);
             }
         }
-    
-        Ok(pids)
-    }
 
-    pub fn collect_usage(pids: Vec<i32>) -> Result<(f32, f32), ErrorArrayItem> {
-        let mut total_cpu = 0.0;
-        let mut total_ram = 0.0;
-    
-        for pid in pids {
-            if let Ok(process) = Process::new(pid) {
-                if let Ok((cpu, ram)) = Self::get_usage(process) {
-                    total_cpu += cpu;
-                    total_ram += ram;
-                    log!(LogLevel::Trace, "PID {} - CPU: {}, RAM: {:.4} MB", pid, cpu, ram / 1024.0);
-                }
-            } else {
-                log!(LogLevel::Error, "Failed to get process info for PID {}", pid);
-            }
-        }
-    
-        Ok((total_cpu, total_ram))
+        Ok(pids)
     }
 
     pub fn aggregate_tree_usage(&self) -> Result<(f32, f32), ErrorArrayItem> {
         let mut visited = HashSet::new();
-    
-        // Step 1: Collect all PIDs starting from `self.pid`
+
         let mut all_pids = Self::collect_all_pids(self.pid, &mut visited)?;
         log!(LogLevel::Trace, "All collected PIDs: {:?}", all_pids);
         all_pids.remove(0);
-    
-        // Step 2: Collect usage information for all PIDs
+
         let (total_cpu, total_ram) = Self::collect_usage(all_pids)?;
-    
-        // Step 3: Return the aggregated data
+
         let average_cpu = if visited.is_empty() {
-            0.0
+            0.8827
         } else {
             total_cpu / visited.len() as f32
         };
-    
+
         Ok((average_cpu, total_ram))
     }
-    
+
+    fn collect_usage(pids: Vec<i32>) -> Result<(f32, f32), ErrorArrayItem> {
+        let mut total_cpu = 0.0;
+        let mut total_ram = 0.0;
+
+        for pid in pids {
+            if let Ok(process) = Process::new(pid) {
+                if let Ok((cpu, ram)) = Self::get_usage(&process) {
+                    total_cpu += cpu;
+                    total_ram += ram;
+                    log!(
+                        LogLevel::Trace,
+                        "PID {} - CPU: {}, RAM: {:.4} MB",
+                        pid,
+                        cpu,
+                        ram / 1024.0
+                    );
+                }
+            } else {
+                log!(
+                    LogLevel::Error,
+                    "Failed to get process info for PID {}",
+                    pid
+                );
+            }
+        }
+
+        Ok((total_cpu, total_ram))
+    }
 }
 
 // ! LEGACY for welcome

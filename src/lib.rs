@@ -1,3 +1,5 @@
+// re-exporting dusa-utils
+pub use dusa_collection_utils;
 use dusa_collection_utils::version::VersionCode;
 
 // This is a successor of the artisan_platform

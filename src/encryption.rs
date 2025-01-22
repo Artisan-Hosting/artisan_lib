@@ -104,7 +104,9 @@ pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
             }
         };
 
-        let parts: Vec<&str> = data_str.splitn(3, '-').collect();
+        // let parts: Vec<&str> = data_str.splitn(3, '-').collect();
+        let parts: Vec<&str> = data_str.split("-").collect();
+
         if parts.len() != 3 {
             log!(LogLevel::Error, "Invalid input data format");
             return UnifiedResult::new(Err(ErrorArrayItem::new(
@@ -112,17 +114,15 @@ pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
                 "Input data does not contain key, data, and count separated by '-'".to_string(),
             )));
         }
-        
-        let cleaned_parts: Vec<String> = parts.iter()
-            .map(|part| part.replace("-", "")) 
-            .collect();
-        
+
+        let cleaned_parts: Vec<String> = parts.iter().map(|part| part.replace("-", "")).collect();
+
         let key = cleaned_parts[1].to_string();
         let encrypted_data = cleaned_parts[0].to_string();
         let count = match cleaned_parts[2].parse::<usize>() {
             Ok(c) => c,
-            Err(_e) => {
-                // log!(LogLevel::Error, "Invalid count value: {}", e);
+            Err(e) => {
+                log!(LogLevel::Error, "Invalid count value: {}", e);
                 1
                 // return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
             }
@@ -146,6 +146,25 @@ async fn execution_locked() -> bool {
         log!(LogLevel::Warn, "RECS locked for cleaning");
     }
     lock
+}
+
+/// This will take a give operation, encrypt or decrypt and run it while signaling
+/// to the recs handling system to not spawn a clean up thread to clean out the
+/// tmp data. this may fill the /tmp dir if used too frequently
+pub async unsafe fn clean_override_op<'a, F, Fut>(
+    callback: F,
+    data: &'a [u8],
+) -> Result<Vec<u8>, ErrorArrayItem>
+where
+    F: Fn(&'a [u8]) -> Fut,
+    Fut: std::future::Future<Output = UnifiedResult<Vec<u8>>>,
+{
+    cleaning_loop_initialized.store(true, Ordering::Relaxed);
+    let result: Vec<u8> = callback(&data).await.uf_unwrap()?;
+    if let Err(err) = house_keeping().await {
+        log!(LogLevel::Error, "HouseKeeping: {}", err);
+    }
+    return Ok(result);
 }
 
 async fn call_clean() {

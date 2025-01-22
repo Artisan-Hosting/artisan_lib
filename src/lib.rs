@@ -21,6 +21,7 @@ pub mod systemd;
 pub mod portal;
 pub mod control;
 pub mod version;
+pub mod enviornment;
 
 pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 

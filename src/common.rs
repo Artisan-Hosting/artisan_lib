@@ -68,7 +68,6 @@ pub async fn update_state(state: &mut AppState, path: &PathType, metrics: Option
 pub async fn wind_down_state(state: &mut AppState, state_path: &PathType) {
     state.data = String::from("Terminated");
     state.status = Status::Stopping;
-    state.last_updated = current_timestamp();
     state.error_log.push(ErrorArrayItem::new(
         Errors::GeneralError,
         "Wind down requested check logs".to_owned(),
@@ -80,6 +79,7 @@ pub async fn wind_down_state(state: &mut AppState, state_path: &PathType) {
 pub async fn log_error(state: &mut AppState, error: ErrorArrayItem, path: &PathType) {
     log!(LogLevel::Error, "{}", error);
     state.error_log.push(error);
+    state.status = Status::Warning;
     update_state(state, path, None).await;
 }
 

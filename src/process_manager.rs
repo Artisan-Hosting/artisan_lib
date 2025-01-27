@@ -119,7 +119,7 @@ impl SupervisedProcess {
 impl SupervisedChild {
     /// Default creates a complex service that captures the std.
     /// This also spawns in its own process group
-    pub async fn new(command: Command) -> Result<Self, ErrorArrayItem> {
+    pub async fn new(command: &mut Command) -> Result<Self, ErrorArrayItem> {
         let super_child = spawn_complex_process(command, None, true, true).await?;
         super_child.monitor_usage().await;
         return Ok(super_child);
@@ -260,32 +260,22 @@ impl ChildLock {
 
 /// Spawn an asynchronous process, similar to the `create_child` logic
 pub async fn spawn_simple_process(
-    command: &str,
-    args: &[&str],
+    command: &mut Command,
     capture_output: bool,
     state: &mut AppState,
     state_path: &PathType,
 ) -> Result<Child, io::Error> {
-    log!(
-        LogLevel::Trace,
-        "Spawning process: {} with args: {:?}",
-        command,
-        args
-    );
-
-    let mut cmd = Command::new(command);
-    cmd.args(args);
 
     if capture_output {
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
     } else {
-        cmd.stdout(Stdio::null());
-        cmd.stderr(Stdio::null());
+        command.stdout(Stdio::inherit());
+        command.stderr(Stdio::inherit());
     }
 
     // Spawn child process
-    let child: Result<Child, io::Error> = match cmd.spawn() {
+    let child: Result<Child, io::Error> = match command.spawn() {
         Ok(child_process) => {
             log!(
                 LogLevel::Trace,
@@ -316,7 +306,7 @@ pub async fn spawn_simple_process(
 }
 
 pub async fn spawn_complex_process(
-    mut command: Command,
+    command: &mut Command,
     working_dir: Option<PathType>,
     independent_process_group: bool,
     capture_output: bool,
@@ -343,8 +333,8 @@ pub async fn spawn_complex_process(
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
     } else {
-        command.stdout(Stdio::null());
-        command.stderr(Stdio::null());
+        command.stdout(Stdio::inherit());
+        command.stderr(Stdio::inherit());
     };
 
     if let Some(path) = working_dir {

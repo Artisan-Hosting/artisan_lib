@@ -49,11 +49,12 @@ impl fmt::Display for CommandType {
 pub enum Status {
     Starting,
     Running,
-    // Idle,
+    Idle,
     Stopping,
     Stopped,
     Unknown,
     Warning,
+    Building
 }
 
 impl fmt::Display for Status {
@@ -61,11 +62,12 @@ impl fmt::Display for Status {
         let status_str = match self {
             Status::Starting => "Starting".bright_green(),
             Status::Running => "Running".green().bold(),
-            // Status::Idle => "Idle".yellow(),
+            Status::Idle => "Idle".yellow(),
             Status::Stopping => "Stopping".bright_red(),
             Status::Stopped => "Stopped".red().bold(),
             Status::Unknown => "Unknown".bright_cyan().bold(),
             Status::Warning => "Warning".bright_yellow(),
+            Status::Building => "Building".bright_blue(),
         };
         write!(f, "{}", status_str)
     }

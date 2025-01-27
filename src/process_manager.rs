@@ -95,6 +95,12 @@ impl SupervisedProcess {
         }
     }
 
+    /// wrapper for 'running' that takes &self
+    pub fn active(&self) -> bool {
+        let pid = self.pid;
+        Self::running(pid.into())
+    }
+
     /// Check if a process is running based on its PID
     pub fn running(pid: c_int) -> bool {
         unsafe { kill(pid, 0) == 0 }
@@ -265,7 +271,6 @@ pub async fn spawn_simple_process(
     state: &mut AppState,
     state_path: &PathType,
 ) -> Result<Child, io::Error> {
-
     if capture_output {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());

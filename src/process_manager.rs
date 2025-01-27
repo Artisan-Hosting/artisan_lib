@@ -30,14 +30,14 @@ pub struct SupervisedProcess {
 }
 
 impl SupervisedProcess {
-    pub fn new(pid: i32) -> Result<Self, ErrorArrayItem> {
+    pub fn new(pid: Pid) -> Result<Self, ErrorArrayItem> {
         // ensure pid is active
-        let active: bool = unsafe { kill(pid, 0) == 0 };
+        let active: bool = unsafe { kill(pid.as_raw(), 0) == 0 };
 
         let supervised_process: Option<SupervisedProcess> = if active {
             Some(SupervisedProcess {
-                pid: Pid::from_raw(pid),
-                monitor: ResourceMonitorLock::new(pid)
+                pid,
+                monitor: ResourceMonitorLock::new(pid.as_raw())
                     .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?,
             })
         } else {

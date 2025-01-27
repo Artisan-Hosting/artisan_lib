@@ -1,15 +1,14 @@
-use std::{fs, os::unix::fs::PermissionsExt};
+use std::{fs, os::unix::fs::{chown, PermissionsExt}};
 
 use dusa_collection_utils::{
     errors::{ErrorArrayItem, Errors},
     types::PathType,
 };
-use nix::unistd::{chown, Gid, Uid};
 use users::{Groups, Users, UsersCache};
 use walkdir::WalkDir;
 
-/// Getting the current uid
-pub fn get_id(user: &str) -> Result<(Uid, Gid), ErrorArrayItem> {
+/// Getting the current uid (uid, gid)
+pub fn get_id(user: &str) -> Result<(u32, u32), ErrorArrayItem> {
     let user_cache: UsersCache = UsersCache::new();
 
     let uid_result: Result<u32, ErrorArrayItem> =
@@ -33,10 +32,11 @@ pub fn get_id(user: &str) -> Result<(Uid, Gid), ErrorArrayItem> {
     let ais_uid = uid_result?;
     let ais_gid = gid_result?;
 
-    Ok((Uid::from_raw(ais_uid), Gid::from_raw(ais_gid)))
+
+    Ok((ais_uid, ais_gid))
 }
 
-pub fn set_file_ownership(path: &PathType, uid: Uid, gid: Gid) -> Result<(), ErrorArrayItem> {
+pub fn set_file_ownership(path: &PathType, uid: u32, gid: u32) -> Result<(), ErrorArrayItem> {
     let path_buf = path.to_path_buf();
 
     if path_buf.is_dir() {

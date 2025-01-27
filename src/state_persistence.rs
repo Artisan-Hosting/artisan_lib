@@ -28,6 +28,9 @@ pub struct AppState {
     // The current status of the application
     pub status: Status,
 
+    // The current PID of the application
+    pub pid: u32,
+
     // The timestamp when the state was last updated
     pub last_updated: u64,
 
@@ -100,6 +103,12 @@ impl fmt::Display for AppState {
             "    {}: {}",
             "Ram Limit".bold().cyan(),
             self.config.max_ram_usage
+        )?;
+        writeln!(
+            f,
+            "    {}: {}",
+            "PID".bold().purple(),
+            self.pid,
         )?;
         writeln!(
             f,

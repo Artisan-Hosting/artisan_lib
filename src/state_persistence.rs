@@ -6,6 +6,7 @@ use std::{fmt, fs};
 use dusa_collection_utils::types::PathType;
 use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 
+use crate::aggregator::Status;
 use crate::git_actions::GitServer;
 use crate::timestamp::format_unix_timestamp;
 use crate::{
@@ -24,15 +25,15 @@ pub struct AppState {
     // A General-purpose field of semi-persistence data
     pub data: String,
 
+    // The current status of the application
+    pub status: Status,
+
     // The timestamp when the state was last updated
     pub last_updated: u64,
 
     // A counter to show the app isn't deadlocked or stalled. It's ticked at
     // critical or intense actions in application
     pub event_counter: u32,
-
-    // A flag indicating whether the application is in an active state
-    pub is_active: bool,
 
     // List of errors that have occurred during runtime
     pub error_log: Vec<ErrorArrayItem>,
@@ -60,16 +61,6 @@ impl fmt::Display for AppState {
             "  {}: {}",
             "Event Counter".bold().magenta(),
             self.event_counter
-        )?;
-        writeln!(
-            f,
-            "  {}: {}",
-            "Is Active".bold().blue(),
-            if self.is_active {
-                "Yes".bold().green()
-            } else {
-                "No".bold().red()
-            }
         )?;
         writeln!(f, "  {}:", "Error Log".bold().red())?;
         if self.error_log.is_empty() {
@@ -187,6 +178,8 @@ impl fmt::Display for AppState {
                 "Aggregator Configuration: None".italic().dimmed()
             )?;
         }
+
+        writeln!(f, "Status: {}", &self.status)?;
 
         Ok(())
     }

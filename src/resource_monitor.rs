@@ -203,7 +203,7 @@ impl ResourceMonitor {
                 }
             } else {
                 log!(
-                    LogLevel::Error,
+                    LogLevel::Warn,
                     "Failed to get process info for PID {}",
                     pid
                 );

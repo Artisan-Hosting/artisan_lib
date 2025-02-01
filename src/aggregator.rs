@@ -125,6 +125,8 @@ impl fmt::Display for Metrics {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppStatus {
     pub app_id: ID,
+    pub git_id: ID,
+    pub pid: u32,
     pub status: Status,
     pub uptime: Option<u64>,
     pub error: Option<Vec<ErrorArrayItem>>,

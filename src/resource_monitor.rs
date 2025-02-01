@@ -91,7 +91,6 @@ impl ResourceMonitor {
         })?;
 
         if !process.is_alive() {
-            log!(LogLevel::Warn, "Process {} is no longer alive", process.pid);
             return Ok((0.0, 0.0));
         }
 

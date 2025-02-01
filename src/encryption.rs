@@ -1,4 +1,7 @@
+use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
 use dusa_collection_utils::log;
+use rand::Rng;
+use simple_comms::protocol::encryption::generate_key;
 use tokio::sync::Notify;
 use {
     dusa_collection_utils::{
@@ -209,17 +212,53 @@ async fn initialize_locker() -> Result<(), ErrorArrayItem> {
     }
 }
 
-// The worst case for these timings is a error after ~6.8 seconds
-// let attempts: u8 = 10;
-// let mut tries: u8 = 0;
-//
-// while tries <= attempts {
-//     if execution_locked().await {
-//         tries += 1;
-//         tokio::time::sleep(Duration::from_millis(700)).await;
-//         continue;
-//     }
-//
-//     code()
-//
-// }
+#[allow(unused_assignments)]
+const NONCE_SIZE: usize = 12; // GCM Nonce size
+const KEY_SIZE: usize = 32; // 256-bit key
+
+pub fn simple_encrypt(data: &[u8]) -> Result<Stringy, ErrorArrayItem> {
+    // Generate a random key and nonce
+    let mut key: [u8; 32] = [0u8; 32];
+    generate_key(&mut key);
+    let cipher = Aes256Gcm::new(&key.into());
+    let nonce_bytes = rand::thread_rng().gen::<[u8; NONCE_SIZE]>();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    // Encrypt the data
+    let ciphertext = cipher
+        .encrypt(nonce, data)
+        .map_err(|e| ErrorArrayItem::new(Errors::InvalidBlockData, e.to_string()))?;
+
+    // Combine the key, nonce, and ciphertext into a single byte stream
+    let mut result = Vec::with_capacity(KEY_SIZE + NONCE_SIZE + ciphertext.len());
+    result.extend_from_slice(&key);
+    result.extend_from_slice(nonce);
+    result.extend_from_slice(&ciphertext);
+
+    let cipher_text = Stringy::from(hex::encode(result));
+
+    Ok(cipher_text)
+}
+
+pub fn simple_decrypt(encrypted_cipher_data: &[u8]) -> Result<Vec<u8>, ErrorArrayItem> {
+    let encrypted_data: Vec<u8> =
+        hex::decode(encrypted_cipher_data).map_err(ErrorArrayItem::from)?;
+
+    // Extract the key, nonce, and ciphertext
+    if encrypted_data.len() <= KEY_SIZE + NONCE_SIZE {
+        return Err(ErrorArrayItem::new(
+            Errors::InvalidBlockData,
+            "Encrypted data is too short",
+        ));
+    }
+
+    let key = Key::<Aes256Gcm>::from_slice(&encrypted_data[..KEY_SIZE]);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(&encrypted_data[KEY_SIZE..KEY_SIZE + NONCE_SIZE]);
+    let ciphertext = &encrypted_data[KEY_SIZE + NONCE_SIZE..];
+
+    // Decrypt the data
+    cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|err| ErrorArrayItem::new(Errors::InvalidBlockData, err.to_string()))
+}

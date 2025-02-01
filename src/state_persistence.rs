@@ -7,11 +7,12 @@ use dusa_collection_utils::types::PathType;
 use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 
 use crate::aggregator::Status;
+use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::git_actions::GitServer;
 use crate::timestamp::format_unix_timestamp;
 use crate::{
     config::AppConfig,
-    encryption::{decrypt_text, encrypt_text},
+    // encryption::{decrypt_text, encrypt_text},
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -104,12 +105,7 @@ impl fmt::Display for AppState {
             "Ram Limit".bold().cyan(),
             self.config.max_ram_usage
         )?;
-        writeln!(
-            f,
-            "    {}: {}",
-            "PID".bold().purple(),
-            self.pid,
-        )?;
+        writeln!(f, "    {}: {}", "PID".bold().purple(), self.pid,)?;
         writeln!(
             f,
             "    {}: {}",
@@ -201,21 +197,38 @@ impl StatePersistence {
         PathType::Content(format!("/tmp/.{}.state", config.app_name))
     }
 
-    pub async fn save_state(state: &AppState, path: &PathType) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn save_state(
+        state: &AppState,
+        path: &PathType,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let toml_str: Stringy = toml::to_string(state)?.into();
-        let state_data = encrypt_text(toml_str)
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg.to_string()))?;
+        let state_data = simple_encrypt(toml_str.as_bytes()).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg.to_string())
+        })?;
+
+        // let state_data = encrypt_text(toml_str)
+        // .await
+        // .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg.to_string()))?;
+
         fs::write(path, state_data.to_string())?;
         Ok(())
     }
 
     pub async fn load_state(path: &PathType) -> Result<AppState, Box<dyn std::error::Error>> {
         let encrypted_content: Stringy = fs::read_to_string(path)?.into();
-        let content: Stringy = decrypt_text(encrypted_content).await.map_err(|_| {
+        let content = simple_decrypt(encrypted_content.as_bytes()).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
         })?;
-        let state: AppState = toml::from_str(&content)?;
+
+        // let content: Stringy = decrypt_text(encrypted_content).await.map_err(|_| {
+        // std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
+        // })?;
+        // let state: AppState = toml::from_str(&content)?;
+        let cipher_string = String::from_utf8(content).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to convert to string")
+        })?;
+
+        let state: AppState = toml::from_str(&cipher_string)?;
         Ok(state)
     }
 }

@@ -6,14 +6,14 @@ use serde_json::Error;
 use simple_comms::network::send_receive::send_message;
 use simple_comms::protocol::flags::Flags;
 use simple_comms::protocol::proto::Proto;
-use tokio::net::UnixStream;
 use std::{
     fmt,
     fs::{File, OpenOptions},
     io::{Read, Write},
 };
+use tokio::net::UnixStream;
 
-use crate::encryption::{decrypt_text, encrypt_text};
+use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::state_persistence::AppState;
 use crate::timestamp::current_timestamp;
 
@@ -54,7 +54,7 @@ pub enum Status {
     Stopped,
     Unknown,
     Warning,
-    Building
+    Building,
 }
 
 impl fmt::Display for Status {
@@ -352,7 +352,8 @@ pub async fn save_registered_apps(apps: &[AppStatus]) -> Result<(), ErrorArrayIt
         .open(AGGREGATOR_PATH)
         .map_err(ErrorArrayItem::from)?;
     let data: String = serde_json::to_string_pretty(apps).map_err(ErrorArrayItem::from)?;
-    let encrypted_data: Stringy = encrypt_text(data.into()).await?;
+    // let encrypted_data: Stringy = encrypt_text(data.into()).await?;
+    let encrypted_data: Stringy = simple_encrypt(data.as_bytes())?;
     match file.write_all(encrypted_data.as_bytes()) {
         Ok(_) => return Ok(()),
         Err(err) => return Err(ErrorArrayItem::from(err)),
@@ -364,7 +365,13 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     let mut file: File = File::open(AGGREGATOR_PATH)?;
     let mut encrypted_data: String = String::new();
     file.read_to_string(&mut encrypted_data)?;
-    let data: Stringy = decrypt_text(Stringy::from(encrypted_data)).await?;
+    // let data: Stringy = decrypt_text(Stringy::from(encrypted_data)).await?;
+    let data: Stringy = simple_decrypt(encrypted_data.as_bytes())
+        .map(|data| -> Result<Stringy, ErrorArrayItem>{
+            let d = String::from_utf8(data).map_err(ErrorArrayItem::from).map(|string| Stringy::from(string))?;
+            Ok(d)
+        })??;
+    
     let apps: Vec<AppStatus> = serde_json::from_str(&data)?;
     // let apps: Vec<RegisterApp> = serde_json::from_reader(reader)?;
     Ok(apps)
@@ -386,7 +393,14 @@ pub async fn register_app(app: &AppState) -> Result<(), ErrorArrayItem> {
     match &app.config.aggregator {
         Some(agg) => {
             let mut stream = UnixStream::connect(agg.socket_path.clone()).await?;
-            let response = send_message::<UnixStream, AppMessage, AppMessage>(&mut stream, Flags::NONE,  app_message, Proto::UNIX, false).await?;
+            let response = send_message::<UnixStream, AppMessage, AppMessage>(
+                &mut stream,
+                Flags::NONE,
+                app_message,
+                Proto::UNIX,
+                false,
+            )
+            .await?;
             match response {
                 Ok(message) => {
                     let payload: AppMessage = message.get_payload().await;
@@ -396,22 +410,29 @@ pub async fn register_app(app: &AppState) -> Result<(), ErrorArrayItem> {
                             if command_response.success {
                                 log!(LogLevel::Trace, "State updated with aggregator !");
                             }
-                        },
-                        _ => log!(LogLevel::Warn, "Illegal response recieved while reporting status"),
+                        }
+                        _ => log!(
+                            LogLevel::Warn,
+                            "Illegal response recieved while reporting status"
+                        ),
                     }
 
                     Ok(())
-                },
+                }
                 Err(err) => {
-                    log!(LogLevel::Warn, "Updaitng app status with aggregator failed. Recieved {} from server", err);
-                    return  Ok(());
-                },
+                    log!(
+                        LogLevel::Warn,
+                        "Updaitng app status with aggregator failed. Recieved {} from server",
+                        err
+                    );
+                    return Ok(());
+                }
             }
         }
 
         None => {
             log!(LogLevel::Trace, "Aggragator not configured");
-            return Ok(())
-        },
+            return Ok(());
+        }
     }
 }

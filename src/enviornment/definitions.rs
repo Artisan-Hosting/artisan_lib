@@ -6,7 +6,7 @@ use dusa_collection_utils::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::encryption::{clean_override_op, decrypt_data, encrypt_data};
+use crate::encryption::{simple_decrypt, simple_encrypt};
 
 pub const VERSION_TAG_V1: &str = "#? version:1";
 pub const VERSION_TAG_V2: &str = "#? version:2";
@@ -41,7 +41,8 @@ pub enum Enviornment {
 impl Enviornment {
     // Returns cipher text of the data
     pub async fn parse(data: &[u8]) -> Result<Self, ErrorArrayItem> {
-        let data_bytes = unsafe { clean_override_op(decrypt_data, data).await? };
+        // let data_bytes = unsafe { clean_override_op(decrypt_data, data).await? };
+        let data_bytes = simple_decrypt(data)?;
         let data_string = String::from_utf8(data_bytes).map_err(ErrorArrayItem::from)?;
         let data_lines: Vec<&str> = data_string.lines().map(|line| line).collect();
         match data_lines[0] == VERSION_TAG_V1 || data_lines[0] == VERSION_TAG_V2 {
@@ -112,7 +113,11 @@ impl Enviornment_V1 {
     pub async fn encrypt(&self) -> Result<Vec<u8>, ErrorArrayItem> {
         let data_json: String = self.to_json()?;
         let data_vec = data_json.as_bytes();
-        unsafe { clean_override_op(encrypt_data, data_vec).await }
+        // unsafe { clean_override_op(encrypt_data, data_vec).await }
+        match simple_encrypt(data_vec) {
+            Ok(data) => Ok(data.as_bytes().to_vec()),
+            Err(err) => Err(err),
+        }
     }
 
     // return the json encoded data
@@ -125,13 +130,15 @@ impl Enviornment_V1 {
         let mut json_data: String = self.to_json()?;
         json_data.insert_str(0, VERSION_TAG_V1);
         let bytes: Vec<u8> =
-            unsafe { clean_override_op(encrypt_data, json_data.as_bytes()).await? };
+            // unsafe { clean_override_op(encrypt_data, json_data.as_bytes()).await? };
+            simple_encrypt(json_data.as_bytes())?.as_bytes().to_vec();
         Ok(bytes)
     }
 
     // Reading the bytes FILE -> Struct
     pub async fn parse_from(data: &[u8]) -> Result<Self, ErrorArrayItem> {
-        let data_bytes = unsafe { clean_override_op(decrypt_data, data).await? };
+        // let data_bytes = unsafe { clean_override_op(decrypt_data, data).await? };
+        let data_bytes = simple_decrypt(data)?;
         let data_string = String::from_utf8(data_bytes).map_err(ErrorArrayItem::from)?;
         let data_lines: Vec<&str> = data_string.lines().map(|line| line).collect();
         match data_lines[0] == VERSION_TAG_V1 {
@@ -268,7 +275,8 @@ impl Enviornment_V2 {
     pub async fn encrypt(&self) -> Result<Vec<u8>, ErrorArrayItem> {
         let data_json: String = self.to_json()?;
         let data_vec = data_json.as_bytes();
-        unsafe { clean_override_op(encrypt_data, data_vec).await }
+        // unsafe { clean_override_op(encrypt_data, data_vec).await }
+        Ok(simple_encrypt(data_vec)?.as_bytes().to_vec())
     }
 
     // return the json encoded data
@@ -281,7 +289,8 @@ impl Enviornment_V2 {
     pub async fn parse(_data: &[u8]) -> Result<Self, ErrorArrayItem> {
         log!(LogLevel::Error, "Version 2 not implemented");
         unimplemented!();
-        let data_bytes = unsafe { clean_override_op(decrypt_data, _data).await? };
+        // let data_bytes = unsafe { clean_override_op(decrypt_data, _data).await? };
+        let data_bytes = simple_decrypt(_data)?;
         let data_string = String::from_utf8(data_bytes).map_err(ErrorArrayItem::from)?;
         let data_lines: Vec<&str> = data_string.lines().map(|line| line).collect();
         match data_lines[0] == VERSION_TAG_V2 {

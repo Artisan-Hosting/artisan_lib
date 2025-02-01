@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 
-use dusa_collection_utils::{stringy::Stringy, log, log::LogLevel};
+use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
 
-use crate::encryption::encrypt_text;
+use crate::encryption::simple_encrypt;
 
 /// Capture user input from the terminal
 /// Returns a `Stringy` item after printing the prompt 
@@ -19,17 +19,11 @@ pub fn get_user_input(prompt: &str) -> Stringy {
 }
 
 /// Capture user input from the terminal and encrypts it
-pub async fn get_encrypted_user_input(prompt: &str) -> Stringy {
+pub async fn get_encrypted_user_input(prompt: &str) -> Result<Stringy, ErrorArrayItem> {
     let user_input: Stringy = get_user_input(prompt);
-    let data = encrypt_text(user_input).await;
-
-    match data {
-        Ok(data) => data,
-        Err(e) => {
-            log!(LogLevel::Error, "{}", e);
-            Stringy::from("")
-        },
-    }
+    // let data = encrypt_text(user_input).await;
+    let data = simple_encrypt(user_input.as_bytes())?;
+    Ok(data)
 }
 
 /// Display options and capture the user's selection

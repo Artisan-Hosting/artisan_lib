@@ -11,7 +11,7 @@ use std::{
 use tokio::time::sleep;
 
 use crate::{
-    encryption::encrypt_text, timestamp::current_timestamp
+    encryption::simple_encrypt, timestamp::current_timestamp
 };
 
 pub const IDENTITYPATHSTR: &str = "/opt/artisan/identity";
@@ -176,7 +176,8 @@ impl Identifier {
                 e.to_string(),
             )
         })?;
-        let encrypted_data = encrypt_text(Stringy::from(json_representation)).await?;
+        // let encrypted_data = encrypt_text(Stringy::from(json_representation)).await?;
+        let encrypted_data = simple_encrypt(json_representation.as_bytes())?;
         Ok(encrypted_data)
     }
 

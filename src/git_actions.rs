@@ -16,7 +16,8 @@ use dusa_collection_utils::{
     types::PathType,
 };
 
-use crate::encryption::{decrypt_text, encrypt_text};
+use crate::encryption::{simple_decrypt, simple_encrypt};
+// use crate::encryption::{decrypt_text, encrypt_text};
 
 pub const ARTISANCF: &str = "/opt/artisan/artisan.cf";
 
@@ -116,9 +117,11 @@ impl GitCredentials {
             Some(file) => {
                 if file.exists() {
                     let encrypted_credentials = Self::read_file(file)?;
-                    let decrypted_string =
-                        decrypt_text(encrypted_credentials).await?.replace('\n', "");
-                    let data: GitCredentials = serde_json::from_str(&decrypted_string)?;
+                    let decrypted_vec: Vec<u8> = simple_decrypt(encrypted_credentials.as_bytes())?;
+                    let decrypted_string: String =
+                        String::from_utf8(decrypted_vec).map_err(ErrorArrayItem::from)?;
+                    let data: GitCredentials =
+                        serde_json::from_str(&decrypted_string.replace('\n', ""))?;
                     Ok(data)
                 } else {
                     Err(ErrorArrayItem::new(
@@ -129,7 +132,9 @@ impl GitCredentials {
             }
             None => {
                 let encrypted_credentials = Self::read_file(&PathType::Str(ARTISANCF.into()))?;
-                let decrypted_string = decrypt_text(encrypted_credentials).await?.replace('\n', "");
+                let decrypted_vec: Vec<u8> = simple_decrypt(encrypted_credentials.as_bytes())?;
+                let decrypted_string: String =
+                    String::from_utf8(decrypted_vec).map_err(ErrorArrayItem::from)?;
                 let data: GitCredentials = serde_json::from_str(&decrypted_string)?;
                 Ok(data)
             }
@@ -176,7 +181,8 @@ impl GitCredentials {
         })?;
 
         // Encrypt the JSON data
-        let encrypted_data = encrypt_text(Stringy::from(&json_data)).await?;
+        // let encrypted_data = encrypt_text(Stringy::from(&json_data)).await?;
+        let encrypted_data = simple_encrypt(json_data.as_bytes())?;
 
         // Write the encrypted data to the file
         let mut file = OpenOptions::new()

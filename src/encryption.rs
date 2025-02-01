@@ -27,6 +27,8 @@ lazy_static::lazy_static! {
     static ref cleaning_lock: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
+#[allow(deprecated)]
+#[deprecated(since="4.3.0", note="Currently unstable use `simple_encrypt` if possible")]
 pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     let data_bytes = data.as_bytes().to_vec();
     let plain_bytes = encrypt_data(&data_bytes).await.uf_unwrap()?;
@@ -35,6 +37,8 @@ pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     Ok(text)
 }
 
+#[allow(deprecated)]
+#[deprecated(since="4.3.0", note="Currently unstable use `simple_decrypt` if possible")]
 pub async fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     let data_bytes: &[u8] = data.as_bytes();
     let decrypted_bytes: Vec<u8> = decrypt_data(&data_bytes).await.uf_unwrap()?;
@@ -44,6 +48,7 @@ pub async fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     Ok(decrypted_stringy)
 }
 
+#[deprecated(since="4.3.0", note="Currently unstable use `simple_encrypt` if possible")]
 pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     if let Err(err) = initialize_locker().await {
         return UnifiedResult::new(Err(err));
@@ -84,6 +89,7 @@ pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     )));
 }
 
+#[deprecated(since="4.3.0", note="Currently unstable use `simple_decrypt` if possible")]
 pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     if let Err(err) = initialize_locker().await {
         return UnifiedResult::new(Err(err));
@@ -154,6 +160,7 @@ async fn execution_locked() -> bool {
 /// This will take a give operation, encrypt or decrypt and run it while signaling
 /// to the recs handling system to not spawn a clean up thread to clean out the
 /// tmp data. this may fill the /tmp dir if used too frequently
+#[deprecated(since="4.3.0", note="Currently unstable use `simple_*` if possible")]
 pub async unsafe fn clean_override_op<'a, F, Fut>(
     callback: F,
     data: &'a [u8],

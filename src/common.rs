@@ -62,6 +62,8 @@ pub async fn update_state(state: &mut AppState, path: &PathType, metrics: Option
             format!("{}", err),
         ));
     }
+
+    log!(LogLevel::Debug, "State Updated");
 }
 
 // Update the state file in the case of a un handled error

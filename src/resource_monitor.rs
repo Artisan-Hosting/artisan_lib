@@ -8,11 +8,9 @@ use procfs::process::{all_processes, Process};
 use gethostname::gethostname;
 use sysinfo::System;
 use std::{
-    collections::{HashMap, HashSet},
-    io::{self, BufRead},
-    time::Duration,
+    collections::{HashMap, HashSet}, io::{self, BufRead}, time::Duration
 };
-use tokio::time::sleep;
+use tokio::{task::JoinHandle, time::sleep};
 
 use crate::aggregator::Metrics;
 
@@ -24,7 +22,7 @@ impl ResourceMonitorLock {
         Ok(ResourceMonitorLock(LockWithTimeout::new(resource_monitor)))
     }
 
-    pub async fn monitor(&self, delay: u64) {
+    pub async fn monitor(&self, delay: u64) -> JoinHandle<()> {
         let monitor_lock = self.clone();
         tokio::spawn(async move {
             loop {
@@ -42,7 +40,7 @@ impl ResourceMonitorLock {
                 }
                 sleep(Duration::from_secs(delay)).await;
             }
-        });
+        })
     }
 
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {

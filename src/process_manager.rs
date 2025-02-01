@@ -9,6 +9,7 @@ use std::process::Stdio;
 use std::time::Duration;
 use std::{io, thread};
 use tokio::process::{Child, Command};
+use tokio::task::JoinHandle;
 
 use crate::aggregator::Metrics;
 use crate::resource_monitor::ResourceMonitorLock;
@@ -23,13 +24,16 @@ pub struct ChildLock(pub LockWithTimeout<Child>);
 pub struct SupervisedChild {
     pub child: ChildLock,
     pub monitor: ResourceMonitorLock,
+    monitor_handle: Option<JoinHandle<()>>,
 }
 pub struct SupervisedProcess {
     pid: Pid,
     pub monitor: ResourceMonitorLock,
+    monitor_handle: Option<JoinHandle<()>>,
 }
 
 impl SupervisedProcess {
+    /// This spawns with no monitoring thread initialized
     pub fn new(pid: Pid) -> Result<Self, ErrorArrayItem> {
         // ensure pid is active
         let active: bool = unsafe { kill(pid.as_raw(), 0) == 0 };
@@ -39,6 +43,7 @@ impl SupervisedProcess {
                 pid,
                 monitor: ResourceMonitorLock::new(pid.as_raw())
                     .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?,
+                monitor_handle: None,
             })
         } else {
             None
@@ -60,7 +65,8 @@ impl SupervisedProcess {
         self.pid.as_raw()
     }
 
-    pub fn kill(&self) -> Result<(), ErrorArrayItem> {
+    pub fn kill(&mut self) -> Result<(), ErrorArrayItem> {
+        self.terminate_monitor();
         let xid = self.pid.as_raw();
 
         // Kill the entire process group
@@ -111,10 +117,37 @@ impl SupervisedProcess {
         let _ = waitpid(Pid::from_raw(pid), None);
     }
 
-    /// Spawns a endless loop that updates the resource monitor from /proc
-    pub async fn monitor_usage(&self) {
-        let d0: &ResourceMonitorLock = &self.monitor;
-        d0.monitor(2).await; // 2 secs so most trys with timeouts will work
+    /// **Note** This will terminate any monitors on this item
+    pub async fn clone(&mut self) -> Self {
+        self.terminate_monitor();
+        let monitor_lock: ResourceMonitorLock = self.monitor.clone();
+
+        let monitor: ResourceMonitorLock = monitor_lock.clone();
+        // let pid: Pid = self.pid.clone();
+
+        Self {
+            pid: self.pid,
+            monitor,
+            monitor_handle: None,
+        }
+    }
+
+    /// Spawns a loop that updates the resource monitor from /proc
+    pub async fn monitor_usage(&mut self) {
+        if let None = self.monitor_handle {
+            let d0: &ResourceMonitorLock = &self.monitor.clone();
+            let handle: JoinHandle<()> = d0.monitor(2).await; // 2 secs so most trys with timeouts will work
+            self.monitor_handle = Some(handle)
+        }
+    }
+
+    /// Terminates the monitor attached to this instance
+    pub fn terminate_monitor(&mut self) {
+        if let Some(handle) = &self.monitor_handle {
+            log!(LogLevel::Trace, "Terminating monitor");
+            handle.abort();
+            self.monitor_handle = None;
+        }
     }
 
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
@@ -126,9 +159,13 @@ impl SupervisedChild {
     /// Default creates a complex service that captures the std.
     /// This also spawns in its own process group
     pub async fn new(command: &mut Command) -> Result<Self, ErrorArrayItem> {
-        let super_child = spawn_complex_process(command, None, true, true).await?;
-        super_child.monitor_usage().await;
-        return Ok(super_child);
+        let child = spawn_complex_process(command, None, true, true).await?;
+
+        return Ok(Self {
+            child: child.child,
+            monitor: child.monitor,
+            monitor_handle: child.monitor_handle,
+        });
     }
 
     pub async fn get_pid(&self) -> Result<u32, ErrorArrayItem> {
@@ -147,17 +184,24 @@ impl SupervisedChild {
         };
     }
 
-    pub async fn clone(&self) -> Self {
-        let monitor_lock: &ResourceMonitorLock = &self.monitor;
-        let child_lock: &ChildLock = &self.child;
+    /// **Note** This will terminate any monitors on this item
+    pub async fn clone(&mut self) -> Self {
+        self.terminate_monitor();
+        let monitor_lock: ResourceMonitorLock = self.monitor.clone();
+        let child_lock: ChildLock = self.child.clone();
 
         let monitor: ResourceMonitorLock = monitor_lock.clone();
         let child: ChildLock = child_lock.clone();
 
-        Self { child, monitor }
+        Self {
+            child,
+            monitor,
+            monitor_handle: None,
+        }
     }
 
-    pub async fn kill(&self) -> Result<(), ErrorArrayItem> {
+    pub async fn kill(&mut self) -> Result<(), ErrorArrayItem> {
+        self.terminate_monitor();
         self.child.kill().await
     }
 
@@ -170,10 +214,22 @@ impl SupervisedChild {
         ChildLock::running(xid.try_into().unwrap())
     }
 
-    /// Spawns a endless loop that updates the resource monitor from /proc
-    pub async fn monitor_usage(&self) {
-        let d0: &ResourceMonitorLock = &self.monitor;
-        d0.monitor(2).await; // 2 secs so most trys with timeouts will work
+    /// Spawns a loop that updates the resource monitor from /proc
+    pub async fn monitor_usage(&mut self) {
+        if let None = self.monitor_handle {
+            let d0: &ResourceMonitorLock = &self.clone().await.monitor;
+            let handle: JoinHandle<()> = d0.monitor(2).await; // 2 secs so most trys with timeouts will work
+            self.monitor_handle = Some(handle)
+        }
+    }
+
+    /// Terminates the monitor attached to this instance
+    pub fn terminate_monitor(&mut self) {
+        if let Some(handle) = &self.monitor_handle {
+            log!(LogLevel::Trace, "Terminating monitor");
+            handle.abort();
+            self.monitor_handle = None;
+        }
     }
 
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
@@ -377,7 +433,11 @@ pub async fn spawn_complex_process(
             //  Creating the rw_lock for the child
             let child: ChildLock = ChildLock::new(child);
 
-            let supervised_child: SupervisedChild = SupervisedChild { child, monitor };
+            let supervised_child: SupervisedChild = SupervisedChild {
+                child,
+                monitor,
+                monitor_handle: None,
+            };
 
             Ok(supervised_child)
         }

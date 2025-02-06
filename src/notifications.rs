@@ -1,27 +1,40 @@
 use colored::Colorize;
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors, OkWarning, UnifiedResult, WarningArray, WarningArrayItem, Warnings},
+    errors::{
+        ErrorArrayItem, Errors, OkWarning, UnifiedResult, WarningArray, WarningArrayItem, Warnings,
+    },
     log::LogLevel,
     log,
     stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
-use simple_comms::{network::send_receive::send_message, protocol::{flags::Flags, proto::Proto, status::ProtocolStatus}};
+use simple_comms::{
+    network::send_receive::send_message,
+    protocol::{flags::Flags, proto::Proto, status::ProtocolStatus},
+};
 use std::fmt;
 use tokio::net::TcpStream;
 
+/// Default mail server address. Used if no custom address is provided in [`Email::send`].
 const MAIL_ADDRESS: &str = "45.137.192.70:1827";
 
-/// Represents an email message.
+/// Represents an email message containing a subject and a body.
+///
+/// # Overview
+/// 
+/// - **Subject** (`Stringy`): The headline or topic of the email.
+/// - **Body** (`Stringy`): The main content of the email.
+///
+/// This struct provides methods for creating, validating, converting to/from JSON,
+/// and sending the email over a TCP stream to a mail server.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Email {
-    /// The subject of the email.
+    /// The subject of the email message.
     pub subject: Stringy,
-    /// The body of the email.
+    /// The body content of the email message.
     pub body: Stringy,
 }
 
-// Display implementation for Email
 impl fmt::Display for Email {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -34,29 +47,120 @@ impl fmt::Display for Email {
 }
 
 impl Email {
-    /// Creates a new Email instance with the given subject and body.
+    /// Creates a new `Email` instance with the provided subject and body.
+    ///
+    /// # Arguments
+    ///
+    /// * `subject` - A [`Stringy`] value representing the email's subject line.
+    /// * `body` - A [`Stringy`] value representing the email's main content.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use crate::Email;
+    /// let subject = Stringy::from("Greetings");
+    /// let body = Stringy::from("Hello, how are you?");
+    /// let email = Email::new(subject, body);
+    /// ```
     pub fn new(subject: Stringy, body: Stringy) -> Self {
         Email { subject, body }
     }
 
-    /// Checks if the email data is valid.
+    /// Checks if the `Email` fields are valid (i.e., not empty).
+    ///
+    /// # Returns
+    ///
+    /// * `true` if both `subject` and `body` are non-empty.
+    /// * `false` otherwise.
+    ///
+    /// # Example
+    /// ```rust
+    /// let email = Email::new("Subject".into(), "Body".into());
+    /// assert!(email.is_valid());
+    /// ```
     pub fn is_valid(&self) -> bool {
         !self.subject.is_empty() && !self.body.is_empty()
     }
 
-    /// Converts the email to JSON format.
+    /// Converts this `Email` instance to a JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`ErrorArrayItem`] if the serialization fails.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use crate::Email;
+    /// let email = Email::new("Subject".into(), "Body".into());
+    /// match email.to_json() {
+    ///     Ok(json_str) => println!("JSON: {}", json_str),
+    ///     Err(err) => eprintln!("Could not serialize email: {}", err),
+    /// }
+    /// ```
     pub fn to_json(&self) -> Result<String, ErrorArrayItem> {
-        serde_json::to_string(self).map_err(|err| ErrorArrayItem::from(err))
+        serde_json::to_string(self).map_err(ErrorArrayItem::from)
     }
 
-    /// Creates an Email instance from JSON data.
+    /// Creates an `Email` instance from a JSON string.
+    ///
+    /// # Arguments
+    ///
+    /// * `json_data` - The JSON representation of an `Email`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`ErrorArrayItem`] if deserialization fails.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use crate::Email;
+    /// let json_data = r#"{"subject":"Hello","body":"World"}"#;
+    /// match Email::from_json(json_data) {
+    ///     Ok(email) => println!("Email Subject: {}", email.subject),
+    ///     Err(err) => eprintln!("Could not deserialize email: {}", err),
+    /// }
+    /// ```
     pub fn from_json(json_data: &str) -> Result<Self, ErrorArrayItem> {
-        serde_json::from_str(json_data).map_err(|err| ErrorArrayItem::from(err))
+        serde_json::from_str(json_data).map_err(ErrorArrayItem::from)
     }
 
-    /// Sends the email data over a TCP stream.
+    /// Sends this `Email` over a TCP stream to the specified address, or to the default
+    /// [`MAIL_ADDRESS`] if `addr` is `None`.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - An optional address in the format `host:port`. If `None`, 
+    ///   defaults to `MAIL_ADDRESS`.
+    ///
+    /// # Return
+    ///
+    /// Returns a [`UnifiedResult`] containing an [`OkWarning<()>`] on success, 
+    /// or an [`ErrorArrayItem`] if the connection fails, the email data is invalid, 
+    /// or the server indicates an error.
+    ///
+    /// # Errors
+    ///
+    /// - **`Errors::GeneralError`** if `subject` or `body` is empty.
+    /// - **`Errors::Network`** for network-related issues.
+    /// - **Other** potential errors based on serialization or internal server response codes.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use tokio::runtime::Runtime;
+    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # let rt = Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    /// let email = Email::new(Stringy::from("Test Subject"), Stringy::from("Test Body"));
+    /// let result = email.send(None).await; // uses MAIL_ADDRESS by default
+    /// match result.into_result() {
+    ///     Ok(_) => println!("Email sent successfully!"),
+    ///     Err(err) => eprintln!("Failed to send email: {}", err),
+    /// }
+    /// # });
+    /// ```
     #[rustfmt::skip]
     pub async fn send(&self, addr: Option<&str>) -> UnifiedResult<OkWarning<()>> {
+        // Validate email fields
         if !self.is_valid() {
             return UnifiedResult::new(Err(ErrorArrayItem::new(
                 Errors::GeneralError,
@@ -64,6 +168,7 @@ impl Email {
             )));
         }
 
+        // Attempt to connect to the specified address or default mail server
         let stream_result: Result<TcpStream, UnifiedResult<OkWarning<()>>> = match addr {
             Some(addr) => TcpStream::connect(addr).await,
             None => TcpStream::connect(MAIL_ADDRESS).await,
@@ -76,6 +181,7 @@ impl Email {
 
         log!{LogLevel::Trace, "Connected to: {:#?}", stream.peer_addr().unwrap()};
 
+        // Serialize the email to JSON
         let data_result: Result<String, UnifiedResult<OkWarning<()>>> = self.to_json()
             .map_err(|err| UnifiedResult::new(Err(err)));
 
@@ -84,34 +190,37 @@ impl Email {
             Err(err) => return err,
         };
 
+        // Send the message and handle response
         match send_message::<TcpStream, String, ()>(
-            &mut stream, Flags::OPTIMIZED, data,
-            Proto::TCP, false
+            &mut stream, 
+            Flags::OPTIMIZED, 
+            data,
+            Proto::TCP, 
+            false
         ).await {
             Ok(response) => {
                 match response {
                     Ok(response) => {
-                        let warning: WarningArrayItem = 
+                        // We handle the server's status code as a potential "unexpected behavior" warning
+                        let warning: WarningArrayItem =
                             WarningArrayItem::new_details(
-                            Warnings::UnexpectedBehavior, format!("{}", 
-                                    ProtocolStatus::from_bits_truncate(response.header.status))
+                                Warnings::UnexpectedBehavior,
+                                format!("{}", ProtocolStatus::from_bits_truncate(response.header.status))
                             );
 
-                        return UnifiedResult::new(Ok(OkWarning{
+                        UnifiedResult::new(Ok(OkWarning{
                             data: response.payload,
                             warning: WarningArray::new(vec![warning]),
                         }))
                     },
                     Err(error_code) => {
-                        let error: ErrorArrayItem = 
-                            ErrorArrayItem::new(Errors::Network, format!("{}", error_code));
-                        
-                        return UnifiedResult::new(Err(error))
+                        let error = ErrorArrayItem::new(Errors::Network, format!("{}", error_code));
+                        UnifiedResult::new(Err(error))
                     },
                 }
             },
             Err(err) => {
-                return UnifiedResult::new(Err(ErrorArrayItem::from(err)))
+                UnifiedResult::new(Err(ErrorArrayItem::from(err)))
             },
         }
     }

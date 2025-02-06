@@ -51,12 +51,20 @@ static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 /// # Example
 /// ```rust
 /// # use dusa_collection_utils::stringy::Stringy;
+/// # use tokio::runtime::Runtime;
+/// # use std::time::Duration;
+/// # use artisan_middleware::encryption::encrypt_text;
+/// # let rt = Runtime::new().unwrap();
 /// # let text = Stringy::from("sensitive information");
-/// # // async context assumed
-/// match encrypt_text(text).await {
-///     Ok(encrypted) => println!("Encrypted data: {}", encrypted),
-///     Err(err) => eprintln!("Encryption failed: {}", err),
-/// }
+/// # rt.block_on(async {
+///     
+///     #[allow(deprecated)]
+///     match encrypt_text(text).await {
+///         Ok(encrypted) => println!("Encrypted data: {}", encrypted),
+///         Err(err) => eprintln!("Encryption failed: {}", err),
+///     }
+/// 
+///  # });
 /// ```
 #[allow(deprecated)]
 #[deprecated(
@@ -87,12 +95,24 @@ pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
 /// # Example
 /// ```rust
 /// # use dusa_collection_utils::stringy::Stringy;
-/// # let encrypted = Stringy::from("some_legacy_encrypted_data");
-/// # // async context assumed
-/// match decrypt_text(encrypted).await {
-///     Ok(decrypted) => println!("Decrypted data: {}", decrypted),
-///     Err(err) => eprintln!("Decryption failed: {}", err),
-/// }
+/// # use tokio::runtime::Runtime;
+/// # use std::time::Duration;
+/// # use artisan_middleware::encryption::decrypt_text;
+/// # use artisan_middleware::encryption::encrypt_text;
+/// # let rt = Runtime::new().unwrap();
+/// # let text = Stringy::from("sensitive information");
+/// # rt.block_on(async {
+/// 
+///     #[allow(deprecated)]
+///     let encrypted = encrypt_text(text).await.unwrap();
+/// 
+///     #[allow(deprecated)]
+///     match decrypt_text(encrypted).await {
+///         Ok(decrypted) => println!("Decrypted data: {}", decrypted),
+///         Err(err) => eprintln!("Decryption failed: {}", err),
+///     }
+/// 
+/// # });
 /// ```
 #[allow(deprecated)]
 #[deprecated(
@@ -266,7 +286,7 @@ async fn execution_locked() -> bool {
 /// # Safety
 /// This function is marked as `unsafe` because it uses `unsafe` string
 /// conversions internally. Only use it if you are certain the input data
-/// can be safely converted to `String`. Also This function can lead to 
+/// can be safely converted to `String`. Also This function can lead to
 /// unessacery filling of the /tmp dir if used too many times as the cleaning
 /// loop looses its refrence to the tmp recs data called this way
 ///

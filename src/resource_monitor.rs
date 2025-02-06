@@ -30,6 +30,7 @@ impl ResourceMonitorLock {
     ///
     /// # Example
     /// ```rust
+    /// # use artisan_middleware::resource_monitor::ResourceMonitorLock;
     /// let pid = 1234;
     /// match ResourceMonitorLock::new(pid) {
     ///     Ok(monitor_lock) => {

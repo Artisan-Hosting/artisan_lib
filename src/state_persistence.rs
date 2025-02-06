@@ -204,7 +204,9 @@ impl StatePersistence {
     ///
     /// # Example
     /// ```rust
-    /// let config = AppConfig { app_name: "my_app", ..Default::default() };
+    /// # use artisan_middleware::state_persistence::StatePersistence;
+    /// # use artisan_middleware::config::AppConfig;
+    /// let config = AppConfig::dummy();
     /// let path = StatePersistence::get_state_path(&config);
     /// println!("State file path: {:?}", path);
     /// ```

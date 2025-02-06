@@ -1,6 +1,4 @@
 use core::fmt;
-use std::{collections::HashMap, net::IpAddr};
-
 use colored::Colorize;
 use dusa_collection_utils::{
     functions::{create_hash, truncate},

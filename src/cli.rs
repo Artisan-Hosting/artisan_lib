@@ -55,3 +55,8 @@ pub fn get_yes_no(prompt: &str) -> bool {
         }
     }
 }
+
+pub fn clean_screen() {
+    // Clearing screen
+    print!("\x1B[2J\x1B[H");
+}

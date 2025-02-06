@@ -16,7 +16,7 @@ use std::fmt;
 use tokio::net::TcpStream;
 
 /// Default mail server address. Used if no custom address is provided in [`Email::send`].
-const MAIL_ADDRESS: &str = "45.137.192.70:1827";
+const MAIL_ADDRESS: &str = "185.187.235.4:1827";
 
 /// Represents an email message containing a subject and a body.
 ///

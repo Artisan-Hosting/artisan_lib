@@ -7,8 +7,6 @@ use trust_dns_resolver::{
     AsyncResolver,
 };
 
-use crate::version::aml_version;
-
 /// Resolves a given URL to its corresponding IP addresses using a DNS resolver. 
 /// If no custom resolver address is provided, it defaults to `1.1.1.1` (Cloudflare).
 ///
@@ -26,6 +24,7 @@ use crate::version::aml_version;
 /// # Example
 /// ```rust,no_run
 /// # use tokio::runtime::Runtime;
+/// # use artisan_middleware::network::resolve_url;
 /// # let rt = Runtime::new().unwrap();
 /// # rt.block_on(async {
 ///     match resolve_url("example.com", None).await {
@@ -79,24 +78,4 @@ pub async fn resolve_url(url: &str, resolver_addr: Option<IpAddr>) -> Result<Opt
             Ok(None)
         },
     }
-}
-
-/// Retrieves the current AML (Artisan Manager Library) version and encodes it into a `u16`.
-/// 
-/// # Details
-/// This function calls [`aml_version()`](crate::version::aml_version), which returns 
-/// a version object that implements a custom `encode()` method. The method call converts 
-/// the version data into a `u16`.
-///
-/// # Returns
-/// A 16-bit unsigned integer representing the encoded version.
-///
-/// # Example
-/// ```rust
-/// let version_header = get_header_version();
-/// println!("Header version: {}", version_header);
-/// ```
-pub fn get_header_version() -> u16 {
-    let lib_version = aml_version();
-    lib_version.encode()
 }

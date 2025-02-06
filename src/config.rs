@@ -1,7 +1,9 @@
 use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
-use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy, version::SoftwareVersion};
+use dusa_collection_utils::{
+    errors::ErrorArrayItem, log::LogLevel, stringy::Stringy, version::SoftwareVersion,
+};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 
@@ -90,8 +92,8 @@ impl AppConfig {
         // Detect the run mode (e.g., development, production) from the RUN_MODE environment variable.
         let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "development".into());
 
-        let version =
-            serde_json::to_string(&SoftwareVersion::dummy()).map_err(|e| ConfigError::Foreign(Box::new(e)))?;
+        let version = serde_json::to_string(&SoftwareVersion::dummy())
+            .map_err(|e| ConfigError::Foreign(Box::new(e)))?;
 
         // Start building the configuration using ConfigBuilder.
         let builder = Config::builder()
@@ -105,7 +107,6 @@ impl AppConfig {
             .set_default("debug_mode", false)?
             .set_default("log_level", "Info")?
             .set_default("git", None::<String>)?
-
             // .set_default("git.default_server", "GitHub")?
             // .set_default("git.credentials_file", "/opt/artisan/artisan.cf")?
             // .set_default("git.ssh_key_path", None::<String>)?
@@ -168,6 +169,22 @@ impl AppConfig {
         let version: SoftwareVersion = serde_json::from_str(&self.version)?;
         Ok(version)
     }
+
+    /// Returns a dummy `AppConfig` with hardcoded placeholder values.
+    pub fn dummy() -> Self {
+        AppConfig {
+            app_name: Stringy::from("MyDummyApp"),
+            version: SoftwareVersion::dummy().to_string(),
+            max_ram_usage: 512,
+            max_cpu_usage: 80,
+            environment: "development".to_string(),
+            debug_mode: true,
+            log_level: LogLevel::Debug,
+            git: None,
+            database: None,
+            aggregator: None,
+        }
+    }
 }
 
 impl fmt::Display for AppConfig {
@@ -175,15 +192,20 @@ impl fmt::Display for AppConfig {
         let version = self.get_version().unwrap_or(SoftwareVersion::dummy());
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
-        writeln!(f, "  {}: {}", "Application Version".bold().cyan(), version.application)?;
-        writeln!(f, "  {}: {}", "Library Version".bold().cyan(), version.library)?;
-        writeln!(f, "  {}: {}", "Log Level".bold().cyan(), self.log_level)?;
         writeln!(
             f,
             "  {}: {}",
-            "Ram Limit".bold().cyan(),
-            self.max_ram_usage
+            "Application Version".bold().cyan(),
+            version.application
         )?;
+        writeln!(
+            f,
+            "  {}: {}",
+            "Library Version".bold().cyan(),
+            version.library
+        )?;
+        writeln!(f, "  {}: {}", "Log Level".bold().cyan(), self.log_level)?;
+        writeln!(f, "  {}: {}", "Ram Limit".bold().cyan(), self.max_ram_usage)?;
         writeln!(
             f,
             "  {}: {}",

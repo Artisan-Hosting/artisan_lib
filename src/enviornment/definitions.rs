@@ -1,23 +1,35 @@
 use core::fmt;
-
 use colored::Colorize;
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors}, log, stringy::Stringy, log::LogLevel
+    errors::{ErrorArrayItem, Errors},
+    log,
+    log::LogLevel,
+    stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::encryption::{simple_decrypt, simple_encrypt};
 
+/// A string marker identifying version 1 of the `Enviornment` configuration format.
 pub const VERSION_TAG_V1: &str = "#? version:1";
+/// A string marker identifying version 2 of the `Enviornment` configuration format.
 pub const VERSION_TAG_V2: &str = "#? version:2";
+/// A string marker identifying version 3 of the `Enviornment` configuration format.
+/// (Unused placeholder)
 pub const VERSION_TAG_V3: &str = "#? version:3";
 
+/// Represents different types of applications that can be built or run.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum ApplicationType {
+    /// A simple application type with minimal build steps.
     Simple,
+    /// A Next.js application.
     Next,
+    /// An Angular.js application.
     Angular,
+    /// A Python-based application.
     Python,
+    /// A custom application type not covered by the above.
     Custom,
 }
 
@@ -33,46 +45,73 @@ impl fmt::Display for ApplicationType {
     }
 }
 
+/// An overarching enum for environment configurations. Currently, it supports:
+/// 
+/// - **`V1`** (`Enviornment_V1`): A first-generation environment configuration.
+/// - **`V2`** (`Enviornment_V2`): A second-generation environment configuration (not documented yet).
+///
+/// This enum’s [`parse`] method attempts to decrypt and parse raw bytes into one of the 
+/// available environment versions based on a version tag (like `#? version:1` or `#? version:2`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Enviornment {
+    /// Represents version 1 of the environment configuration.
     V1(Enviornment_V1),
+    /// Represents version 2 of the environment configuration.
+    /// (Implementation under development, not documented here.)
     V2(Enviornment_V2),
 }
 
 impl Enviornment {
-    // Returns cipher text of the data
+    /// Parses raw, encrypted data into either `Enviornment::V1` or `Enviornment::V2`.
+    /// 
+    /// # Procedure
+    /// - Decrypts the provided data using [`simple_decrypt`].
+    /// - Reads the first line to determine the version tag (e.g., `#? version:1` or `#? version:2`).
+    /// - If `version:1`, deserializes into [`Enviornment_V1`].
+    /// - If `version:2`, (currently unimplemented) would deserialize into `Enviornment_V2`.
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if decryption fails or if the version header is invalid.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let raw_data = /* some encrypted bytes for Enviornment_V1 */;
+    /// match Enviornment::parse(&raw_data).await {
+    ///     Ok(env) => println!("Successfully parsed environment config."),
+    ///     Err(err) => eprintln!("Error parsing environment: {}", err),
+    /// }
+    /// ```
     pub async fn parse(data: &[u8]) -> Result<Self, ErrorArrayItem> {
-        // let data_bytes = unsafe { clean_override_op(decrypt_data, data).await? };
         let data_bytes = simple_decrypt(data)?;
         let data_string = String::from_utf8(data_bytes).map_err(ErrorArrayItem::from)?;
         let data_lines: Vec<&str> = data_string.lines().map(|line| line).collect();
-        match data_lines[0] == VERSION_TAG_V1 || data_lines[0] == VERSION_TAG_V2 {
-            true => {
-                if data_lines[0].contains("1") {
+
+        match data_lines.first() {
+            Some(line) if *line == VERSION_TAG_V1 || *line == VERSION_TAG_V2 => {
+                if line.contains("1") {
+                    // V1 environment format
                     let headerless_data = data_lines[1..].concat();
                     let env: Enviornment_V1 =
                         serde_json::from_str(&headerless_data).map_err(ErrorArrayItem::from)?;
                     return Ok(Self::V1(env));
                 }
-                #[allow(unreachable_code)]
-                if data_lines[0].contains("2") {
+                if line.contains("2") {
                     log!(LogLevel::Error, "Version 2 not implemented");
                     unimplemented!();
-                    let headerless_data = data_lines[1..].concat();
-                    let env: Enviornment_V2 =
-                        serde_json::from_str(&headerless_data).map_err(ErrorArrayItem::from)?;
-                    return Ok(Self::V2(env));
                 }
-                return Err(ErrorArrayItem::new(
+                Err(ErrorArrayItem::new(
                     Errors::ConfigParsing,
-                    format!("Invalid version header: {}", data_lines[0]),
-                ));
-            }
-            false => {
-                return Err(ErrorArrayItem::new(
-                    Errors::ConfigParsing,
-                    format!("Invalid version header: {}", data_lines[0]),
+                    format!("Invalid version header: {}", line),
                 ))
             }
+            Some(line) => Err(ErrorArrayItem::new(
+                Errors::ConfigParsing,
+                format!("Invalid version header: {}", line),
+            )),
+            None => Err(ErrorArrayItem::new(
+                Errors::ConfigParsing,
+                "No data found to parse".to_string(),
+            )),
         }
     }
 }
@@ -90,68 +129,99 @@ impl fmt::Display for Enviornment {
     }
 }
 
-//#? version:1
+/// **Environment V1**: A first-generation configuration struct containing info for building
+/// and running an application. This includes user/group IDs, ports, secrets, build commands, etc.
+///
+/// # Fields
+/// 
+/// * `application_type` - An optional [`ApplicationType`] indicating the kind of application (e.g. Python, Angular).
+/// * `execution_uid` - Optional user ID used when spawning child processes.
+/// * `execution_gid` - Optional group ID used when spawning child processes.
+/// * `primary_listening_port` - Port used as the main server or API listener.
+/// * `secret_id` / `secret_passwd` - Commonly used to store credentials or tokens.
+/// * `path_modifier` - An additional path to be appended.
+/// * `pre_build_command` / `build_command` / `run_command` - Shell commands for building or running the app.
+/// * `env_key_0` - A single custom environment variable in the form `(key, value)`.
 #[allow(non_camel_case_types)]
-#[rustfmt::skip]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Enviornment_V1 {
-    pub application_type:       Option<ApplicationType>, // Application for building
-    pub execution_uid:          Option<u16>, // user id to spawn the runner as
-    pub execution_gid:          Option<u16>, // group id to spawn the runner as
-    pub primary_listening_port: Option<u16>, // ie: web server listener, api port
-    pub secret_id:              Option<Stringy>, // Secret data to pass
-    pub secret_passwd:          Option<Stringy>, // Secret data to pass
-    pub path_modifier:          Option<Stringy>, // Data to append the the string path 
-    pub pre_build_command:      Option<Stringy>, // i:e npm install, command to handle depends
-    pub build_command:          Option<Stringy>, // Command to build the project
-    pub run_command:            Option<Stringy>, // Run command
-    pub env_key_0:              Option<(Stringy, Stringy)>, // Setting custom env values
+    pub application_type:       Option<ApplicationType>,
+    pub execution_uid:          Option<u16>,
+    pub execution_gid:          Option<u16>,
+    pub primary_listening_port: Option<u16>,
+    pub secret_id:              Option<Stringy>,
+    pub secret_passwd:          Option<Stringy>,
+    pub path_modifier:          Option<Stringy>,
+    pub pre_build_command:      Option<Stringy>,
+    pub build_command:          Option<Stringy>,
+    pub run_command:            Option<Stringy>,
+    pub env_key_0:              Option<(Stringy, Stringy)>,
 }
 
 impl Enviornment_V1 {
-    // Returns cipher text of the data
+    /// Encrypts this V1 environment configuration.  
+    /// Returns a vector of bytes containing the encrypted JSON data.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if JSON serialization or encryption fails.
     pub async fn encrypt(&self) -> Result<Vec<u8>, ErrorArrayItem> {
         let data_json: String = self.to_json()?;
         let data_vec = data_json.as_bytes();
-        // unsafe { clean_override_op(encrypt_data, data_vec).await }
         match simple_encrypt(data_vec) {
             Ok(data) => Ok(data.as_bytes().to_vec()),
             Err(err) => Err(err),
         }
     }
 
-    // return the json encoded data
+    /// Converts this V1 environment configuration to a pretty-printed JSON string.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if serialization fails.
     pub fn to_json(&self) -> Result<String, ErrorArrayItem> {
         serde_json::to_string_pretty(&self).map_err(ErrorArrayItem::from)
     }
 
-    // Struct -> File bytes
+    /// Creates a version-tagged byte vector of this V1 environment configuration 
+    /// (including the `VERSION_TAG_V1` line). The data is then encrypted via [`simple_encrypt`].
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if JSON serialization or encryption fails.
     pub async fn parse_to(&self) -> Result<Vec<u8>, ErrorArrayItem> {
         let mut json_data: String = self.to_json()?;
+        // Insert the version header on its own line
         json_data.insert_str(0, VERSION_TAG_V1);
-        let bytes: Vec<u8> =
-            // unsafe { clean_override_op(encrypt_data, json_data.as_bytes()).await? };
-            simple_encrypt(json_data.as_bytes())?.as_bytes().to_vec();
+        let bytes: Vec<u8> = simple_encrypt(json_data.as_bytes())?.as_bytes().to_vec();
         Ok(bytes)
     }
 
-    // Reading the bytes FILE -> Struct
+    /// Decrypts and deserializes the provided bytes to produce an `Enviornment_V1`.  
+    /// The first line in the decrypted text is expected to be `VERSION_TAG_V1`.
+    ///
+    /// # Arguments
+    /// * `data` - The encrypted bytes containing a `Enviornment_V1` configuration.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if decryption fails or if the version header is missing/invalid.
     pub async fn parse_from(data: &[u8]) -> Result<Self, ErrorArrayItem> {
-        // let data_bytes = unsafe { clean_override_op(decrypt_data, data).await? };
         let data_bytes = simple_decrypt(data)?;
         let data_string = String::from_utf8(data_bytes).map_err(ErrorArrayItem::from)?;
         let data_lines: Vec<&str> = data_string.lines().map(|line| line).collect();
-        match data_lines[0] == VERSION_TAG_V1 {
-            true => {
+
+        match data_lines.first() {
+            Some(line) if *line == VERSION_TAG_V1 => {
                 // parse the correct version
                 let headerless_data = data_lines[1..].concat();
                 let env: Enviornment_V1 =
                     serde_json::from_str(&headerless_data).map_err(ErrorArrayItem::from)?;
                 Ok(env)
             }
-            false => Err(ErrorArrayItem::new(
+            Some(line) => Err(ErrorArrayItem::new(
                 Errors::ConfigParsing,
-                format!("Invalid version header: {}", data_lines[0]),
+                format!("Invalid version header: {}", line),
+            )),
+            None => Err(ErrorArrayItem::new(
+                Errors::ConfigParsing,
+                "No data found to parse".to_string(),
             )),
         }
     }
@@ -217,8 +287,8 @@ impl fmt::Display for Enviornment_V1 {
             format!("ENV MOD 0: {}", "None".bold().green())
         };
 
-        let app_type = if let Some(string) = &self.application_type {
-            format!("APPLICATION: {}", string)
+        let app_type = if let Some(app_type) = &self.application_type {
+            format!("APPLICATION: {}", app_type)
         } else {
             format!("APPLICATION: {}", "None".bold().blue())
         };
@@ -247,7 +317,11 @@ impl fmt::Display for Enviornment_V1 {
     }
 }
 
-//#? version:2
+//================================================
+// (Below code is intentionally left undocumented. 
+//  Enviornment_V2 is still under development.)
+//================================================
+
 #[allow(non_camel_case_types)]
 #[rustfmt::skip]
 #[derive(Serialize, Deserialize, Debug, Clone)]

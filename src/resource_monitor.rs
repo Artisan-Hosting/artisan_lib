@@ -2,33 +2,66 @@ use dusa_collection_utils::{
     errors::{ErrorArrayItem, Errors},
     log::LogLevel,
     log,
-    rwarc::LockWithTimeout, stringy::Stringy,
+    rwarc::LockWithTimeout,
+    stringy::Stringy,
 };
 use procfs::process::{all_processes, Process};
 use gethostname::gethostname;
 use sysinfo::System;
 use std::{
-    collections::{HashMap, HashSet}, io::{self, BufRead}, time::Duration
+    collections::{HashMap, HashSet},
+    io::{self, BufRead},
+    time::Duration,
 };
 use tokio::{task::JoinHandle, time::sleep};
 
 use crate::aggregator::Metrics;
 
+/// A lock-based wrapper around a [`ResourceMonitor`], providing concurrent access with
+/// timeouts. Useful when multiple tasks might try to read/update resource metrics at once.
 pub struct ResourceMonitorLock(pub LockWithTimeout<ResourceMonitor>);
 
 impl ResourceMonitorLock {
+    /// Creates a new [`ResourceMonitorLock`] from a given process ID (`pid`).
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if the underlying [`ResourceMonitor`] fails to initialize
+    ///   (e.g., the PID does not exist or `procfs` cannot read process data).
+    ///
+    /// # Example
+    /// ```rust
+    /// let pid = 1234;
+    /// match ResourceMonitorLock::new(pid) {
+    ///     Ok(monitor_lock) => {
+    ///         // monitor usage, get metrics, etc.
+    ///     }
+    ///     Err(err) => eprintln!("Failed to create ResourceMonitorLock: {}", err),
+    /// }
+    /// ```
     pub fn new(pid: i32) -> Result<Self, ErrorArrayItem> {
         let resource_monitor = ResourceMonitor::new(pid)?;
         Ok(ResourceMonitorLock(LockWithTimeout::new(resource_monitor)))
     }
 
+    /// Spawns a background task that periodically updates the resource monitor’s internal
+    /// CPU and RAM usage data (by calling `update_state`).
+    ///
+    /// # Arguments
+    /// * `delay` - Interval in seconds between consecutive updates.
+    ///
+    /// # Return
+    /// A [`JoinHandle`] for the spawned task. You can call `handle.abort()` to terminate it.
+    ///
+    /// # Behavior
+    /// - Attempts to acquire a write lock on the monitor every `delay` seconds.
+    /// - If locking fails (due to timeout or other issue), it logs an error and breaks the loop.
     pub async fn monitor(&self, delay: u64) -> JoinHandle<()> {
         let monitor_lock = self.clone();
         tokio::spawn(async move {
             loop {
                 match monitor_lock.0.try_write_with_timeout(None).await {
-                    Ok(mut monitor_lock) => {
-                        if let Err(e) = monitor_lock.update_state() {
+                    Ok(mut monitor_guard) => {
+                        if let Err(e) = monitor_guard.update_state() {
                             log!(LogLevel::Error, "Failed to update monitor state: {}", e);
                             break;
                         }
@@ -43,6 +76,11 @@ impl ResourceMonitorLock {
         })
     }
 
+    /// Retrieves the current CPU and memory usage metrics from the monitor.  
+    /// Returns a [`Metrics`] struct populated with `cpu_usage` and `memory_usage`.
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if the read lock cannot be acquired.
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
         let monitor = self.0.try_read().await.map_err(|_| {
             ErrorArrayItem::new(
@@ -57,25 +95,46 @@ impl ResourceMonitorLock {
         })
     }
 
+    /// Creates a new reference to the same underlying [`ResourceMonitor`] via an `Arc`,
+    /// retaining the existing lock state.
     pub fn clone(&self) -> Self {
         ResourceMonitorLock(self.0.clone())
     }
 }
 
+/// Tracks resource usage (CPU and RAM) for a single process on a Linux system using `/proc`.
 #[derive(Clone)]
 pub struct ResourceMonitor {
+    /// The PID of the process being monitored.
     pub pid: i32,
+    /// Most recently measured RAM usage, in megabytes (MB).
     pub ram: f32,
+    /// Most recently measured CPU usage, in "jiffies per second" form. 
+    /// (Can be interpreted as a CPU fraction if scaled properly.)
     pub cpu: f32,
 }
 
 impl ResourceMonitor {
+    /// Creates a new [`ResourceMonitor`] instance by reading data from `/proc/<pid>`.
+    ///
+    /// # Arguments
+    /// * `pid` - The process ID to be monitored.
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if `/proc/<pid>` cannot be read or the process
+    ///   does not exist.
     pub fn new(pid: i32) -> Result<Self, ErrorArrayItem> {
-        let process = Process::new(pid).map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?;
+        let process = Process::new(pid)
+            .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?;
         let (cpu, ram) = Self::get_usage(&process)?;
         Ok(ResourceMonitor { pid, ram, cpu })
     }
 
+    /// Updates the stored CPU and RAM usage values by re-reading `/proc/<pid>`.
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if the process info cannot be read.  
+    ///   If the process has exited, CPU and RAM values are set to 0.
     pub fn update_state(&mut self) -> Result<(), ErrorArrayItem> {
         let process = Process::new(self.pid)
             .map_err(|_| ErrorArrayItem::new(Errors::GeneralError, "Failed to read process"))?;
@@ -85,15 +144,28 @@ impl ResourceMonitor {
         Ok(())
     }
 
+    /// Retrieves the current CPU and RAM usage for a given [`Process`].
+    ///
+    /// - **RAM** is computed by taking the resident set size (RSS) from `statm` and converting 
+    ///   it to MB (`(RSS * 4096) / (1024 * 1024)`).
+    /// - **CPU** usage is computed via [`calculate_cpu_usage`].
+    ///
+    /// # Returns
+    /// A tuple `(cpu_usage, memory_usage_mb)`.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if the process stat cannot be read.
     fn get_usage(process: &Process) -> Result<(f32, f32), ErrorArrayItem> {
         let stat = process.stat().map_err(|_| {
             ErrorArrayItem::new(Errors::GeneralError, "Failed to retrieve process stat")
         })?;
 
+        // If process is not alive, return zero usage
         if !process.is_alive() {
             return Ok((0.0, 0.0));
         }
 
+        // Convert the resident set size (RSS) to MB
         let memory = process
             .statm()
             .map(|statm| (statm.resident as f32 * 4096.0) / (1024.0 * 1024.0))
@@ -103,6 +175,16 @@ impl ResourceMonitor {
         Ok((cpu_usage, memory))
     }
 
+    /// Calculates CPU usage of the process based on its kernel ticks (user + system time) and 
+    /// the system uptime. Checks `/proc/uptime` for total system uptime, and uses process start time
+    /// to derive how long the process has been running.
+    ///
+    /// # Returns
+    /// A floating-point representation of CPU usage over its lifetime.  
+    /// If the process hasn't yet existed for a full second (or if times are invalid), returns 0.0.
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if `/proc/uptime` cannot be read or parsed.
     fn calculate_cpu_usage(stat: &procfs::process::Stat) -> Result<f32, ErrorArrayItem> {
         let total_time = stat.utime + stat.stime + stat.cutime as u64 + stat.cstime as u64;
         let start_time = stat.starttime as f64;
@@ -119,6 +201,7 @@ impl ResourceMonitor {
             ErrorArrayItem::new(Errors::GeneralError, format!("Failed to read uptime: {}", e))
         })?;
 
+        // Parse the system uptime from the first token
         let system_uptime = uptime
             .split_whitespace()
             .next()
@@ -133,9 +216,23 @@ impl ResourceMonitor {
             return Ok(0.0);
         }
 
+        // CPU usage is total_time / process_uptime
         Ok((total_time as f64 / process_uptime) as f32)
     }
 
+    /// Recursively collects all PID values in the descendant tree of the given `pid`.
+    /// (Finds child processes, then children of children, etc.)
+    ///
+    /// # Arguments
+    /// - `pid`: The root PID to start from.
+    /// - `visited`: A [`HashSet`] to track visited PIDs (avoid cycles).
+    ///
+    /// # Returns
+    /// A `Vec<i32>` containing all PIDs in the process subtree.
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if enumerating processes via `procfs::process::all_processes`
+    ///   fails.
     pub fn collect_all_pids(
         pid: i32,
         visited: &mut HashSet<i32>,
@@ -147,8 +244,8 @@ impl ResourceMonitor {
         let mut pids = vec![pid];
         let child_pids = all_processes()
             .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?
-            .filter_map(|process| {
-                let process = process.ok()?;
+            .filter_map(|process_result| {
+                let process = process_result.ok()?;
                 if process.stat().ok()?.ppid == pid {
                     Some(process.pid)
                 } else {
@@ -166,12 +263,28 @@ impl ResourceMonitor {
         Ok(pids)
     }
 
+    /// Aggregates CPU and RAM usage across the entire descendant tree of this monitor’s `pid`.
+    /// (Sum CPU usage, sum RAM usage, then average CPU usage across all visited PIDs.)
+    ///
+    /// # Returns
+    /// A tuple: `(average_cpu_usage, total_ram_usage)`.
+    /// 
+    /// # Behavior
+    /// - Recursively finds child processes, sums CPU and RAM usage.
+    /// - A "visited" set is used to prevent counting the same PID multiple times.
+    /// - If no PIDs are visited, the average CPU is set to `0.8827` by default (an internal fallback).
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if any process info cannot be retrieved.
     pub fn aggregate_tree_usage(&self) -> Result<(f32, f32), ErrorArrayItem> {
         let mut visited = HashSet::new();
 
         let mut all_pids = Self::collect_all_pids(self.pid, &mut visited)?;
         log!(LogLevel::Trace, "All collected PIDs: {:?}", all_pids);
-        all_pids.remove(0);
+        // The first element is the root PID itself; remove it before usage calculations
+        if !all_pids.is_empty() {
+            all_pids.remove(0);
+        }
 
         let (total_cpu, total_ram) = Self::collect_usage(all_pids)?;
 
@@ -184,6 +297,12 @@ impl ResourceMonitor {
         Ok((average_cpu, total_ram))
     }
 
+    /// Helper function to sum CPU and RAM usage across multiple process IDs.
+    ///
+    /// # Returns
+    /// `(sum_cpu_usage, sum_ram_usage)`.
+    ///
+    /// Logs warnings for processes that cannot be read or if `Process::new(pid)` fails.
     fn collect_usage(pids: Vec<i32>) -> Result<(f32, f32), ErrorArrayItem> {
         let mut total_cpu = 0.0;
         let mut total_ram = 0.0;
@@ -202,11 +321,7 @@ impl ResourceMonitor {
                     );
                 }
             } else {
-                log!(
-                    LogLevel::Warn,
-                    "Failed to get process info for PID {}",
-                    pid
-                );
+                log!(LogLevel::Warn, "Failed to get process info for PID {}", pid);
             }
         }
 
@@ -214,7 +329,11 @@ impl ResourceMonitor {
     }
 }
 
-// ! LEGACY for welcome
+/// **LEGACY** function (kept for a welcome screen on login) that retrieves basic 
+/// system-wide metrics: CPU usage, total/used RAM, total/used Swap, and the hostname.
+/// 
+/// # Returns
+/// A [`HashMap<Stringy, Stringy>`] with keys such as `"CPU Usage"`, `"Total RAM"`, etc.
 pub fn get_system_stats() -> HashMap<Stringy, Stringy> {
     let mut system = System::new_all();
     system.refresh_all();

@@ -1,51 +1,57 @@
 use colored::Colorize;
+use dusa_collection_utils::errors::Errors;
+use dusa_collection_utils::functions::current_timestamp;
+use dusa_collection_utils::log::{LogLevel, set_log_level};
 use dusa_collection_utils::version::SoftwareVersion;
 use serde::{Deserialize, Serialize};
 use std::{fmt, fs};
 
-use dusa_collection_utils::types::PathType;
-use dusa_collection_utils::{errors::ErrorArrayItem, stringy::Stringy};
-
-use crate::aggregator::Status;
+use dusa_collection_utils::{types::PathType, stringy::Stringy, errors::ErrorArrayItem};
+use dusa_collection_utils::log;
+use crate::aggregator::{Metrics, Status};
 use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::git_actions::GitServer;
 use crate::timestamp::format_unix_timestamp;
-use crate::{
-    config::AppConfig,
-    // encryption::{decrypt_text, encrypt_text},
-};
+use crate::config::AppConfig;
 
+/// Represents the application’s overall state, including:
+/// - **Application name and version**  
+/// - **Status** (e.g., running, stopped)  
+/// - **PID**  
+/// - **Logs of any encountered errors**  
+/// - **Configuration** settings  
+/// - **Timestamps** for when the state was last updated
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct AppState {
-    // Name of the crate
+    /// Name of the crate or application.
     pub name: String,
 
-    // Versions of crate n library
+    /// The current software version of the application.
     pub version: SoftwareVersion,
 
-    // A General-purpose field of semi-persistence data
+    /// A general-purpose string for storing state-specific data (small pieces of persistent info).
     pub data: String,
 
-    // The current status of the application
+    /// The current status of the application (e.g., Running, Stopped, Warning).
     pub status: Status,
 
-    // The current PID of the application
+    /// The PID of the running application process.
     pub pid: u32,
 
-    // The timestamp when the state was last updated
+    /// A Unix timestamp representing when the state was last updated.
     pub last_updated: u64,
 
-    // A counter to show the app isn't deadlocked or stalled. It's ticked at
-    // critical or intense actions in application
+    /// An incrementing counter used to detect if the application is actively performing actions 
+    /// (e.g., each critical operation increases it by 1).
     pub event_counter: u32,
 
-    // List of errors that have occurred during runtime
+    /// A list of errors encountered during runtime. Useful for debugging or post-mortem analysis.
     pub error_log: Vec<ErrorArrayItem>,
 
-    // Configuration settings for the application
+    /// Configuration settings loaded from external sources (e.g., a config file).
     pub config: AppConfig,
 
-    // Is a system application vs a client application
+    /// Indicates if the application is a core system process (`true`) or a user application (`false`).
     pub system_application: bool,
 }
 
@@ -190,13 +196,27 @@ impl fmt::Display for AppState {
     }
 }
 
+/// Provides utility methods for loading and saving [`AppState`] from/to disk.
 pub struct StatePersistence;
 
 impl StatePersistence {
+    /// Derives the default save path for the application state using `/tmp/.<app_name>.state`.
+    ///
+    /// # Example
+    /// ```rust
+    /// let config = AppConfig { app_name: "my_app", ..Default::default() };
+    /// let path = StatePersistence::get_state_path(&config);
+    /// println!("State file path: {:?}", path);
+    /// ```
     pub fn get_state_path(config: &AppConfig) -> PathType {
         PathType::Content(format!("/tmp/.{}.state", config.app_name))
     }
 
+    /// Saves the provided [`AppState`] to the specified `path`.  
+    /// The data is serialized to TOML, then encrypted with [`simple_encrypt`].
+    ///
+    /// # Errors
+    /// - Returns an `Err` if serialization, encryption, or writing to the file fails.
     pub async fn save_state(
         state: &AppState,
         path: &PathType,
@@ -206,29 +226,85 @@ impl StatePersistence {
             std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg.to_string())
         })?;
 
-        // let state_data = encrypt_text(toml_str)
-        // .await
-        // .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg.to_string()))?;
-
         fs::write(path, state_data.to_string())?;
         Ok(())
     }
 
+    /// Loads an [`AppState`] from the specified `path`.  
+    /// Reads the file, then decrypts it with [`simple_decrypt`], and finally deserializes from TOML.
+    ///
+    /// # Errors
+    /// - Returns an `Err` if decryption or TOML deserialization fails, or if the file is unreadable.
     pub async fn load_state(path: &PathType) -> Result<AppState, Box<dyn std::error::Error>> {
         let encrypted_content: Stringy = fs::read_to_string(path)?.into();
         let content = simple_decrypt(encrypted_content.as_bytes()).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
         })?;
 
-        // let content: Stringy = decrypt_text(encrypted_content).await.map_err(|_| {
-        // std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
-        // })?;
-        // let state: AppState = toml::from_str(&content)?;
         let cipher_string = String::from_utf8(content).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to convert to string")
         })?;
 
         let state: AppState = toml::from_str(&cipher_string)?;
         Ok(state)
+    }
+}
+
+/// Updates an [`AppState`] with a new timestamp, increments the event counter, and saves it.
+/// Optionally records resource usage metrics.
+///
+/// # Arguments
+/// - `state`: A mutable reference to the current application state.
+/// - `path`: The path where the state file is stored.
+/// - `metrics`: Optional resource usage metrics to associate with this update.
+///
+/// # Note
+/// - If saving fails, logs the error and pushes an [`ErrorArrayItem`] to `state.error_log`.
+pub async fn update_state(state: &mut AppState, path: &PathType, _metrics: Option<Metrics>) {
+    state.last_updated = current_timestamp();
+    state.event_counter += 1;
+
+    // Attempt to save the state to disk
+    if let Err(err) = StatePersistence::save_state(state, path).await {
+        log!(LogLevel::Error, "Failed to save state: {}", err);
+        state.error_log.push(ErrorArrayItem::new(
+            Errors::GeneralError,
+            format!("{}", err),
+        ));
+    }
+
+    log!(LogLevel::Debug, "State Updated");
+}
+
+/// Performs final updates to the [`AppState`] before application shutdown.  
+/// Sets `state.data` to "Terminated" and `state.status` to `Stopping`, then saves the state.
+pub async fn wind_down_state(state: &mut AppState, state_path: &PathType) {
+    state.data = String::from("Terminated");
+    state.status = Status::Stopping;
+    state.error_log.push(ErrorArrayItem::new(
+        Errors::GeneralError,
+        "Wind down requested - check logs".to_owned(),
+    ));
+    update_state(state, &state_path, None).await;
+}
+
+/// Logs an error, adds it to `state.error_log`, updates the application status to `Warning`,
+/// and saves the updated state.
+pub async fn log_error(state: &mut AppState, error: ErrorArrayItem, path: &PathType) {
+    log!(LogLevel::Error, "{}", error);
+    state.error_log.push(error);
+    state.status = Status::Warning;
+    update_state(state, path, None).await;
+}
+
+/// If the current [`AppState`] is in debug mode, sets the global log level to [`LogLevel::Debug`].
+/// Otherwise, the logging remains unchanged.
+///
+/// # Behavior
+/// - Logs at `[Trace]` level that the log level is being updated (for troubleshooting).
+pub fn debug_log_set(state: &AppState) {
+    log!(LogLevel::Trace, "Updating log level");
+    if state.config.debug_mode {
+        set_log_level(LogLevel::Debug);
     }
 }

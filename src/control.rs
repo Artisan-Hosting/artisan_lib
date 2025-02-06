@@ -22,8 +22,14 @@ impl ToggleControl {
     /// # Examples
     ///
     /// ```rust
-    /// let control = ToggleControl::new();
-    /// assert_eq!(control.is_paused().await, false);
+    /// # use tokio::runtime::Runtime;
+    /// # use std::time::Duration;
+    /// # use artisan_middleware::control::ToggleControl;
+    /// # let rt = Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    ///     let control = ToggleControl::new();
+    ///     assert_eq!(control.is_paused().await, false);
+    /// # });
     /// ```
     pub fn new() -> Self {
         Self {
@@ -39,9 +45,15 @@ impl ToggleControl {
     /// # Examples
     ///
     /// ```rust
-    /// let control = ToggleControl::new();
-    /// control.pause();
-    /// assert_eq!(control.is_paused().await, true);
+    /// # use tokio::runtime::Runtime;
+    /// # use std::time::Duration;
+    /// # use artisan_middleware::control::ToggleControl;
+    /// # let rt = Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    ///     let control = ToggleControl::new();
+    ///     control.pause();
+    ///     assert_eq!(control.is_paused().await, true);
+    /// # });
     /// ```
     pub fn pause(&self) {
         self.paused.store(true, Ordering::SeqCst);
@@ -54,10 +66,16 @@ impl ToggleControl {
     /// # Examples
     ///
     /// ```rust
-    /// let control = ToggleControl::new();
-    /// control.pause();
-    /// control.resume();
-    /// assert_eq!(control.is_paused().await, false);
+    /// # use tokio::runtime::Runtime;
+    /// # use std::time::Duration;
+    /// # use artisan_middleware::control::ToggleControl;
+    /// # let rt = Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    ///     let control = ToggleControl::new();
+    ///     control.pause();
+    ///     control.resume();
+    ///     assert_eq!(control.is_paused().await, false);
+    /// # });
     /// ```
     pub fn resume(&self) {
         self.paused.store(false, Ordering::SeqCst);
@@ -76,23 +94,25 @@ impl ToggleControl {
     /// ```rust
     /// # use tokio::runtime::Runtime;
     /// # use std::time::Duration;
+    /// # use artisan_middleware::control::ToggleControl;
+    /// # use std::sync::Arc;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {
-    /// let control = ToggleControl::new();
-    /// control.pause();
+    ///     let control = Arc::new(ToggleControl::new());
+    ///     control.pause();
     ///
-    /// // In another task or later in the same task:
-    /// tokio::spawn({
-    ///     let control_clone = control.clone();
-    ///     async move {
-    ///         // Wait 1 second before resuming
-    ///         tokio::time::sleep(Duration::from_secs(1)).await;
-    ///         control_clone.resume();
-    ///     }
-    /// });
+    ///     // In another task or later in the same task:
+    ///     tokio::spawn({
+    ///         let control_clone = control.clone();
+    ///         async move {
+    ///             // Wait 1 second before resuming
+    ///             tokio::time::sleep(Duration::from_secs(1)).await;
+    ///             control_clone.resume();
+    ///         }
+    ///     });
     ///
-    /// // This will block until resume is called
-    /// control.wait_if_paused().await;
+    ///     // This will block until resume is called
+    ///     control.wait_if_paused().await;
     /// # });
     /// ```
     pub async fn wait_if_paused(&self) {
@@ -116,6 +136,7 @@ impl ToggleControl {
     /// ```rust
     /// # use tokio::runtime::Runtime;
     /// # use std::time::Duration;
+    /// # use artisan_middleware::control::ToggleControl;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {
     /// let control = ToggleControl::new();
@@ -145,6 +166,7 @@ impl ToggleControl {
     /// # Examples
     ///
     /// ```rust
+    /// # use artisan_middleware::control::ToggleControl;
     /// # use tokio::runtime::Runtime;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {

@@ -23,7 +23,7 @@ pub const IDENTITYPATHSTR: &str = "/opt/artisan/identity";
 pub const HASH_LENGTH: usize = 28;
 
 /// A custom epoch used by the snowflake-based ID generator.  
-/// This value represents an offset subtracted from the current Unix timestamp 
+/// This value represents an offset subtracted from the current Unix timestamp
 /// to keep the resulting IDs relatively smaller.
 pub const CUSTOM_EPOCH: u64 = 1_047_587_400;
 
@@ -55,11 +55,12 @@ impl SnowflakeIDGenerator {
     /// Creates a new `SnowflakeIDGenerator` with the provided datacenter and machine IDs.
     ///
     /// # Errors
-    /// Returns an `Err(())` if `datacenter_id` or `machine_id` is greater than 31 (i.e., 
+    /// Returns an `Err(())` if `datacenter_id` or `machine_id` is greater than 31 (i.e.,
     /// does not fit in 5 bits).
     ///
     /// # Example
     /// ```rust
+    /// # use artisan_middleware::identity::SnowflakeIDGenerator;
     /// match SnowflakeIDGenerator::new(1, 2) {
     ///     Ok(generator) => {
     ///         // success
@@ -116,11 +117,12 @@ impl SnowflakeIDGenerator {
     /// # Example
     /// ```rust
     /// # use tokio::runtime::Runtime;
+    /// # use artisan_middleware::identity::SnowflakeIDGenerator;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {
-    /// let mut generator = SnowflakeIDGenerator::new(1, 2).unwrap();
-    /// let new_id = generator.generate_id().await;
-    /// println!("Generated ID: {}", new_id);
+    ///     let mut generator = SnowflakeIDGenerator::new(1, 2).unwrap();
+    ///     let new_id = generator.generate_id().await;
+    ///     println!("Generated ID: {}", new_id);
     /// # });
     /// ```
     pub async fn generate_id(&mut self) -> u64 {
@@ -174,7 +176,7 @@ pub struct Identifier {
 
 impl Identifier {
     /// Generates a truncated hash (`Stringy`) from the given `id`.
-    /// 
+    ///
     /// # Internal Usage
     /// This function is used within [`Identifier::new`] and [`Identifier::verify`]
     /// to create or compare the internal `_signature`.
@@ -192,7 +194,7 @@ impl Identifier {
     /// # Example
     /// ```rust
     /// # use tokio::runtime::Runtime;
-    /// # use crate::Identifier;
+    /// # use artisan_middleware::identity::Identifier;
     /// let rt = Runtime::new().unwrap();
     /// rt.block_on(async {
     ///     match Identifier::new().await {
@@ -206,14 +208,13 @@ impl Identifier {
         let datacenter_id = rand::thread_rng().gen_range(1..=5);
         let machine_id = rand::thread_rng().gen_range(1..=5);
 
-        let mut big_id: SnowflakeIDGenerator =
-            SnowflakeIDGenerator::new(datacenter_id, machine_id)
-                .map_err(|_| {
-                    ErrorArrayItem::new(
-                        Errors::GeneralError,
-                        "Error generating system ID".to_owned(),
-                    )
-                })?;
+        let mut big_id: SnowflakeIDGenerator = SnowflakeIDGenerator::new(datacenter_id, machine_id)
+            .map_err(|_| {
+                ErrorArrayItem::new(
+                    Errors::GeneralError,
+                    "Error generating system ID".to_owned(),
+                )
+            })?;
 
         let id = big_id.generate_id().await;
 
@@ -233,6 +234,7 @@ impl Identifier {
     /// # Example
     /// ```rust
     /// # use tokio::runtime::Runtime;
+    /// # use artisan_middleware::identity::Identifier;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {
     ///     let ident = Identifier::new().await.unwrap();
@@ -252,15 +254,6 @@ impl Identifier {
     /// - `Ok(Some(Identifier))` if successfully loaded.
     /// - `Ok(None)` if the file does not exist or is invalid.
     /// - `Err(ErrorArrayItem)` if a critical I/O or JSON parsing error occurs.
-    ///
-    /// # Example
-    /// ```rust
-    /// match Identifier::load().await {
-    ///     Ok(Some(ident)) => println!("Loaded ID: {}", ident.id),
-    ///     Ok(None) => println!("No saved Identifier found."),
-    ///     Err(err) => eprintln!("Failed to load Identifier: {}", err),
-    /// }
-    /// ```
     pub async fn load() -> Result<Option<Self>, ErrorArrayItem> {
         let identifier_path: PathType = PathType::Str(IDENTITYPATHSTR.into());
         if identifier_path.exists() {
@@ -281,14 +274,6 @@ impl Identifier {
     /// # Returns
     /// - `Ok(())` if successful.
     /// - `Err(ErrorArrayItem)` if file creation or writing fails.
-    ///
-    /// # Example
-    /// ```rust
-    /// let ident = Identifier { id: 12345, _signature: Stringy::from("some_signature") };
-    /// if let Err(err) = ident.save_to_file() {
-    ///     eprintln!("Failed to save Identifier: {}", err);
-    /// }
-    /// ```
     pub fn save_to_file(&self) -> Result<(), ErrorArrayItem> {
         let serialized_id = serde_json::to_string_pretty(&self)?;
         let mut file = std::fs::File::create(PathType::Str(IDENTITYPATHSTR.into()))?;
@@ -301,14 +286,6 @@ impl Identifier {
     /// # Returns
     /// - `Ok(Identifier)` on success.
     /// - `Err(ErrorArrayItem)` if reading or deserialization fails.
-    ///
-    /// # Example
-    /// ```rust
-    /// match Identifier::load_from_file() {
-    ///     Ok(ident) => println!("Loaded ID: {}", ident.id),
-    ///     Err(err) => eprintln!("Failed to load Identifier: {}", err),
-    /// }
-    /// ```
     pub fn load_from_file() -> Result<Self, ErrorArrayItem> {
         let mut file = std::fs::File::open(PathType::Str(IDENTITYPATHSTR.into()))?;
         let mut content = String::new();
@@ -325,11 +302,16 @@ impl Identifier {
     ///
     /// # Example
     /// ```rust
-    /// let ident = Identifier { id: 12345, _signature: Stringy::from("some_signature") };
-    /// match ident.to_json() {
-    ///     Ok(json_str) => println!("JSON: {}", json_str),
-    ///     Err(err) => eprintln!("Failed to serialize Identifier: {}", err),
-    /// }
+    /// # use tokio::runtime::Runtime;
+    /// # use artisan_middleware::identity::Identifier;
+    /// # let rt = Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    ///     let ident = Identifier::new().await.unwrap();
+    ///     match ident.to_json() {
+    ///         Ok(json_str) => println!("JSON: {}", json_str),
+    ///         Err(err) => eprintln!("Failed to serialize Identifier: {}", err),
+    ///     }
+    /// # });
     /// ```
     pub fn to_json(&self) -> Result<String, ErrorArrayItem> {
         let json_representation = serde_json::to_string_pretty(self)?;
@@ -345,6 +327,7 @@ impl Identifier {
     /// # Example
     /// ```rust
     /// # use tokio::runtime::Runtime;
+    /// # use artisan_middleware::identity::Identifier;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {
     ///     let ident = Identifier::new().await.unwrap();
@@ -356,7 +339,10 @@ impl Identifier {
     /// ```
     pub async fn to_encrypted_json(&self) -> Result<Stringy, ErrorArrayItem> {
         let json_representation = self.to_json().map_err(|e| {
-            ErrorArrayItem::new(dusa_collection_utils::errors::Errors::JsonCreation, e.to_string())
+            ErrorArrayItem::new(
+                dusa_collection_utils::errors::Errors::JsonCreation,
+                e.to_string(),
+            )
         })?;
         let encrypted_data = simple_encrypt(json_representation.as_bytes())?;
         Ok(encrypted_data)
@@ -366,8 +352,14 @@ impl Identifier {
     ///
     /// # Example
     /// ```rust
-    /// let ident = Identifier { id: 12345, _signature: Stringy::from("sig") };
-    /// ident.display_id(); // Logs "ID: 12345" at Debug level
+    /// # use artisan_middleware::identity::Identifier;
+    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use tokio::runtime::Runtime;
+    /// let rt = Runtime::new().unwrap();
+    /// rt.block_on(async {
+    ///     let ident = Identifier::new().await.unwrap();
+    ///     ident.display_id(); // Logs "ID: 12345" at Debug level
+    /// # });
     /// ```
     pub fn display_id(&self) {
         log!(LogLevel::Debug, "ID: {}", self.id);
@@ -377,8 +369,14 @@ impl Identifier {
     ///
     /// # Example
     /// ```rust
-    /// let ident = Identifier { id: 12345, _signature: Stringy::from("sig") };
-    /// ident.display_sig(); // Logs "SIG: sig" at Debug level
+    /// # use artisan_middleware::identity::Identifier;
+    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use tokio::runtime::Runtime;
+    /// let rt = Runtime::new().unwrap();
+    /// rt.block_on(async {
+    ///     let ident = Identifier::new().await.unwrap();
+    ///     ident.display_sig(); // Logs "SIG: sig" at Debug level
+    /// # });
     /// ```
     pub fn display_sig(&self) {
         log!(LogLevel::Debug, "SIG: {}", self._signature);

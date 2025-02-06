@@ -3,9 +3,8 @@ pub use dusa_collection_utils;
 use dusa_collection_utils::version::VersionCode;
 
 // This is a successor of the artisan_platform
-pub mod cli;
-pub mod common;
 pub mod config;
+pub mod cli;
 pub mod encryption;
 pub mod git_actions;
 pub mod identity;

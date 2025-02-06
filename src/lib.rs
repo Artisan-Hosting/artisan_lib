@@ -31,8 +31,8 @@ pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 // #[path = "../src/tests/identity_test.rs"]
 // mod identity_test;
 
-// #[path = "../src/tests/process_manager_test.rs"]
-// mod process_manager_test;
+#[path = "../src/tests/process_manager.rs"]
+mod process_manager_test;
 
 // #[path = "../src/tests/notification_test.rs"]
 // mod notification_test;

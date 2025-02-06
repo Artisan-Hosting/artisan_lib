@@ -551,6 +551,7 @@ pub async fn spawn_complex_process(
 ///
 /// # Example
 /// ```rust
+/// # use artisan_middleware::process_manager::is_pid_active;
 /// match is_pid_active(1234) {
 ///     Ok(true) => println!("PID 1234 is active"),
 ///     Ok(false) => println!("PID 1234 is not active"),

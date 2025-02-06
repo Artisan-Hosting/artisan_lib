@@ -57,7 +57,7 @@ impl Email {
     /// # Example
     /// ```rust
     /// # use dusa_collection_utils::stringy::Stringy;
-    /// # use crate::Email;
+    /// # use artisan_middleware::notifications::Email;
     /// let subject = Stringy::from("Greetings");
     /// let body = Stringy::from("Hello, how are you?");
     /// let email = Email::new(subject, body);
@@ -75,6 +75,7 @@ impl Email {
     ///
     /// # Example
     /// ```rust
+    /// # use artisan_middleware::notifications::Email;
     /// let email = Email::new("Subject".into(), "Body".into());
     /// assert!(email.is_valid());
     /// ```
@@ -90,7 +91,7 @@ impl Email {
     ///
     /// # Example
     /// ```rust
-    /// # use crate::Email;
+    /// # use artisan_middleware::notifications::Email;
     /// let email = Email::new("Subject".into(), "Body".into());
     /// match email.to_json() {
     ///     Ok(json_str) => println!("JSON: {}", json_str),
@@ -113,7 +114,7 @@ impl Email {
     ///
     /// # Example
     /// ```rust
-    /// # use crate::Email;
+    /// # use artisan_middleware::notifications::Email;
     /// let json_data = r#"{"subject":"Hello","body":"World"}"#;
     /// match Email::from_json(json_data) {
     ///     Ok(email) => println!("Email Subject: {}", email.subject),
@@ -148,11 +149,12 @@ impl Email {
     /// ```rust
     /// # use tokio::runtime::Runtime;
     /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use artisan_middleware::notifications::Email;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {
     /// let email = Email::new(Stringy::from("Test Subject"), Stringy::from("Test Body"));
     /// let result = email.send(None).await; // uses MAIL_ADDRESS by default
-    /// match result.into_result() {
+    /// match result.uf_unwrap() {
     ///     Ok(_) => println!("Email sent successfully!"),
     ///     Err(err) => eprintln!("Failed to send email: {}", err),
     /// }

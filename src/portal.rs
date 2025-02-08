@@ -7,10 +7,11 @@ use dusa_collection_utils::{
 };
 use serde::{Deserialize, Serialize};
 
+#[allow(unused_imports)] // for documents
 use crate::{
     aggregator::{AppStatus, Status},
     config::AppConfig,
-    enviornment::definitions::Enviornment,
+    enviornment::definitions::{Enviornment, Enviornment_V1, Enviornment_V2},
     git_actions::GitCredentials,
     identity::Identifier,
 };
@@ -35,8 +36,8 @@ pub struct ProjectInfo {
 impl ProjectInfo {
     pub fn get_stringy(&self) -> Stringy {
         let data = format!(
-            "{}-{}-{}",
-            self.identity.id, self.project_id, self.project_data.timestamp
+            "{}-{}",
+            self.identity.id, self.project_id
         );
         let hash = create_hash(data);
         let result = truncate(&*hash, 20).to_owned();
@@ -271,9 +272,11 @@ pub struct NodeReloadResult {
 
 /// A minimal data structure containing summary information about a runner.
 ///
-/// This struct can be used for listing runners on a node or for quickly describing
+/// This struct can be used for listing runners for quickly describing
 /// them in aggregate form. It includes key properties such as `name`, `status`,
-/// version details, and an optional `uptime`.
+/// version details, and an optional `uptime`. This is a combination of every instance
+/// of a given runner across all nodes, for more specific info about instance of a runner 
+/// use ['RunnerDetails']
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RunnerSummary {
     /// A short name or identifier for the runner.
@@ -326,17 +329,17 @@ pub struct RunnerDetails {
     /// ensuring consistency in how runners are deployed and managed.
     pub artisan_config: AppConfig,
 
-    /// A JSON object containing runner-specific configuration options.
+    /// A optional JSON object containing runner-specific configuration options.
     ///
     /// Because each runner might require unique settings, `specific_config` is kept as raw
     /// JSON rather than a strongly-typed Rust struct. You can parse or transform it after
     /// deserialization if your application needs more granular control over these settings.
-    pub specific_config: serde_json::Value,
+    pub specific_config: Option<serde_json::Value>,
 
     /// Holds environment-specific configuration for this runner, if available.
     ///
-    /// `Enviornment` is an enum that can represent multiple versions of environment data
-    /// (e.g., `V1` or `V2`). If absent (`None`), the runner may either not rely on
+    /// [`Enviornment`] is an enum that can represent multiple versions of environment data
+    /// e.g., [`Enviornment_V1`] or [`Enviornment_V2`]. If absent (`None`), the runner may either not rely on
     /// environment settings or be using defaults.
     pub enviornment: Option<Enviornment>,
 
@@ -365,7 +368,13 @@ pub struct RunnerHealth {
     pub uptime: u64,
 
     /// The timestamp (formatted as a string) when the runner last passed a health check.
-    pub last_check: String,
+    pub last_check: u64,
+
+    /// Cpu usage
+    pub cpu_usage: Stringy,
+
+    /// Used ram
+    pub ram_usage: Stringy, 
 }
 
 /// Collects recent log entries for a runner, along with optional metadata about log storage.
@@ -376,7 +385,7 @@ pub struct RunnerHealth {
 pub struct RunnerLogs {
     /// A list of recent log messages, including timestamps and textual data.
     pub recent: Vec<LogEntry>,
-    // Uncomment or add if needed:
+    // TODO Implement a log endpoint system for each instance, oneday
     // pub log_endpoint: String,
 }
 

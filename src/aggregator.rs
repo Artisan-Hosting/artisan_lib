@@ -35,6 +35,7 @@ use std::{
 };
 use tokio::net::UnixStream;
 
+use crate::config_bundle::ApplicationConfig;
 use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::portal::ManagerData;
 use crate::state_persistence::AppState;
@@ -186,24 +187,16 @@ pub struct AppStatus {
     pub app_id: ID,
     /// Additional identifier (often a Git commit SHA or branch).
     pub git_id: ID,
-    /// The process ID of the running application (if any).
-    pub pid: u32,
-    /// Current status (running, stopped, etc.).
-    pub status: Status,
-    /// The version of the software.
-    pub version: SoftwareVersion,
-    /// The current uptime in seconds.
+    /// The application state and all configuration data associated, refer to [`ApplicationConfig`]
+    pub app_data: ApplicationConfig,
+    /// The reported uptime of the instance
     pub uptime: Option<u64>,
     /// A list of errors encountered by the application.
-    pub error: Option<Vec<ErrorArrayItem>>,
-    /// An optional set of current metrics (CPU, memory, etc.).
     pub metrics: Option<Metrics>,
     /// The Unix timestamp when this status was recorded.
     pub timestamp: u64,
     /// The expected status set for this application (Running, Stopped, etc.).
     pub expected_status: Status,
-    /// Indicates if this is a system application (true) or a user application (false).
-    pub system_application: bool,
 }
 
 impl AppStatus {
@@ -238,40 +231,25 @@ impl AppStatus {
 
 impl fmt::Display for AppStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let system = match self.system_application {
+        let system = match self.app_data.is_system_application() {
             true => "YES".bold().green(),
             false => "NO".bold().red(),
         };
 
         write!(
             f,
-            "{}: {}, {}: {}, {}: {} seconds, {}: {}, {}: {}, {}: {}, {} {}",
+            "{}: {}, {}: {} seconds, {}: {}, {}: {}, {}: {}, {} {}",
             "App ID".bold().cyan(),
             self.app_id,
-            "Status".bold().cyan(),
-            self.status,
             "Uptime".bold().cyan(),
             self.uptime.unwrap_or(0),
-            "Error".bold().cyan(),
-            {
-                let mut data = String::new();
-
-                match self.error.clone() {
-                    Some(err) => {
-                        let errors = err.iter();
-                        for e in errors {
-                            data.push_str(&e.to_string());
-                        }
-                        data
-                    }
-                    None => "None".to_owned(),
-                }
-            },
             "Metrics".bold().cyan(),
             self.metrics
                 .as_ref()
                 .map(|m| m.to_string())
                 .unwrap_or_else(|| "None".to_string()),
+            "State Data".bold().cyan(),
+            format!("{}\n{}", self.app_data.state, self.app_data.config),
             "Timestamp".bold().cyan(),
             self.timestamp,
             "System App".bold().cyan(),

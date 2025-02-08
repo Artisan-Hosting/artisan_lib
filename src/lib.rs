@@ -21,6 +21,7 @@ pub mod portal;
 pub mod control;
 pub mod version;
 pub mod enviornment;
+pub mod config_bundle;
 
 pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 

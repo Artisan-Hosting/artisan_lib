@@ -4,9 +4,7 @@ use rand::Rng;
 use simple_comms::protocol::encryption::generate_key;
 use tokio::sync::Notify;
 
-use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors, UnifiedResult},
-};
+use dusa_collection_utils::errors::{ErrorArrayItem, Errors, UnifiedResult};
 use recs::{decrypt_raw, encrypt_raw, house_keeping, initialize};
 use std::{
     sync::{
@@ -48,7 +46,7 @@ static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 ///
 /// # Example
 /// ```rust
-/// # use dusa_collection_utils::stringy::Stringy;
+/// # use dusa_collection_utils::types::stringy::Stringy;
 /// # use tokio::runtime::Runtime;
 /// # use std::time::Duration;
 /// # use artisan_middleware::encryption::encrypt_text;
@@ -92,7 +90,7 @@ pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
 ///
 /// # Example
 /// ```rust
-/// # use dusa_collection_utils::stringy::Stringy;
+/// # use dusa_collection_utils::types::stringy::Stringy;
 /// # use tokio::runtime::Runtime;
 /// # use std::time::Duration;
 /// # use artisan_middleware::encryption::decrypt_text;

@@ -23,25 +23,18 @@ use colored::Colorize;
 use dusa_collection_utils::log;
 use dusa_collection_utils::logger::LogLevel;
 use dusa_collection_utils::types::stringy::Stringy;
-use dusa_collection_utils::version::SoftwareVersion;
-use dusa_collection_utils::{errors::ErrorArrayItem};
+use dusa_collection_utils::errors::ErrorArrayItem;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
-use simple_comms::network::send_receive::send_message;
-use simple_comms::protocol::flags::Flags;
-use simple_comms::protocol::proto::Proto;
 use std::{
     fmt,
     fs::{File, OpenOptions},
     io::{Read, Write},
 };
-use tokio::net::UnixStream;
 
 use crate::config_bundle::ApplicationConfig;
 use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::portal::ManagerData;
-use crate::state_persistence::AppState;
-use crate::timestamp::current_timestamp;
 
 /// Path where the aggregator stores AIS Manager data.
 pub const AGGREGATOR_PATH: &str = "/tmp/.ais_manager_data";

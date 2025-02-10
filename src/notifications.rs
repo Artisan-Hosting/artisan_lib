@@ -53,7 +53,7 @@ impl Email {
     ///
     /// # Example
     /// ```rust
-    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use dusa_collection_utils::types::stringy::Stringy;
     /// # use artisan_middleware::notifications::Email;
     /// let subject = Stringy::from("Greetings");
     /// let body = Stringy::from("Hello, how are you?");
@@ -145,7 +145,7 @@ impl Email {
     /// # Example
     /// ```rust
     /// # use tokio::runtime::Runtime;
-    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use dusa_collection_utils::types::stringy::Stringy;
     /// # use artisan_middleware::notifications::Email;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {

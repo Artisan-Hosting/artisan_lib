@@ -350,7 +350,7 @@ impl Identifier {
     /// # Example
     /// ```rust
     /// # use artisan_middleware::identity::Identifier;
-    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use dusa_collection_utils::types::stringy::Stringy;
     /// # use tokio::runtime::Runtime;
     /// let rt = Runtime::new().unwrap();
     /// rt.block_on(async {
@@ -367,7 +367,7 @@ impl Identifier {
     /// # Example
     /// ```rust
     /// # use artisan_middleware::identity::Identifier;
-    /// # use dusa_collection_utils::stringy::Stringy;
+    /// # use dusa_collection_utils::types::stringy::Stringy;
     /// # use tokio::runtime::Runtime;
     /// let rt = Runtime::new().unwrap();
     /// rt.block_on(async {

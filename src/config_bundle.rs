@@ -1,4 +1,4 @@
-use dusa_collection_utils::{errors::{ErrorArray, ErrorArrayItem}, functions::current_timestamp, version::SoftwareVersion};
+use dusa_collection_utils::{errors::ErrorArrayItem, functions::current_timestamp, version::SoftwareVersion};
 use serde::{Deserialize, Serialize};
 
 use crate::{

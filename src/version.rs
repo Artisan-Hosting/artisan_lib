@@ -1,4 +1,4 @@
-use dusa_collection_utils::{stringy::Stringy, version::{Version, VersionCode}};
+use dusa_collection_utils::{types::stringy::Stringy, version::{Version, VersionCode}};
 
 use crate::RELEASEINFO;
 

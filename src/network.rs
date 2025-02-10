@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::net::IpAddr;
-use dusa_collection_utils::log;
-use dusa_collection_utils::log::LogLevel;
+use dusa_collection_utils::{log, logger::LogLevel};
 use trust_dns_resolver::{
     config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts},
     AsyncResolver,

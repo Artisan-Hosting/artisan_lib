@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use dusa_collection_utils::stringy::Stringy;
+use dusa_collection_utils::types::stringy::Stringy;
 
 /// Retrieves the current Unix timestamp in seconds.
 pub fn current_timestamp() -> u64 {

@@ -3,7 +3,7 @@ use std::process::ExitStatus;
 use std::process::Child;
 use std::{fmt, io};
 
-use dusa_collection_utils::stringy::Stringy;
+use dusa_collection_utils::types::stringy::Stringy;
 type ID = Stringy;
 
 /// Enum representing the possible statuses of a systemd service.

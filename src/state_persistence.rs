@@ -1,12 +1,14 @@
 use colored::Colorize;
 use dusa_collection_utils::errors::Errors;
 use dusa_collection_utils::functions::current_timestamp;
-use dusa_collection_utils::log::{LogLevel, set_log_level};
+use dusa_collection_utils::logger::{LogLevel, set_log_level};
+use dusa_collection_utils::types::pathtype::PathType;
+use dusa_collection_utils::types::stringy::Stringy;
 use dusa_collection_utils::version::SoftwareVersion;
 use serde::{Deserialize, Serialize};
 use std::{fmt, fs};
 
-use dusa_collection_utils::{types::PathType, stringy::Stringy, errors::ErrorArrayItem};
+use dusa_collection_utils::{errors::ErrorArrayItem};
 use dusa_collection_utils::log;
 use crate::aggregator::{Metrics, Status};
 use crate::encryption::{simple_decrypt, simple_encrypt};
@@ -41,6 +43,9 @@ pub struct AppState {
     /// A Unix timestamp representing when the state was last updated.
     pub last_updated: u64,
 
+    /// A Unix timestamp created when the application was initially launched
+    pub stared_at: u64,
+
     /// An incrementing counter used to detect if the application is actively performing actions 
     /// (e.g., each critical operation increases it by 1).
     pub event_counter: u32,
@@ -57,7 +62,7 @@ pub struct AppState {
 
 impl fmt::Display for AppState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let version = self.config.get_version().unwrap();
+        let version = &self.version;
         writeln!(f, "{}:", "AppState".bold().underline().cyan())?;
         writeln!(f, "  {}: {}", "Data".bold().green(), self.data)?;
         writeln!(

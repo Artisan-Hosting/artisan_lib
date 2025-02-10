@@ -6,14 +6,14 @@ use std::pin::Pin;
 use std::process::Output;
 
 use colored::Colorize;
+use dusa_collection_utils::types::pathtype::PathType;
+use dusa_collection_utils::types::stringy::Stringy;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
 use dusa_collection_utils::{
     errors::{ErrorArrayItem, Errors},
     functions::{create_hash, truncate},
-    stringy::Stringy,
-    types::PathType,
 };
 
 use crate::encryption::{simple_decrypt, simple_encrypt};

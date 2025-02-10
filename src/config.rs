@@ -2,7 +2,7 @@ use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
 use dusa_collection_utils::{
-    errors::ErrorArrayItem, log::LogLevel, stringy::Stringy, version::SoftwareVersion,
+    errors::ErrorArrayItem, logger::LogLevel, types::stringy::Stringy, version::SoftwareVersion
 };
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
@@ -16,7 +16,7 @@ pub struct AppConfig {
     pub app_name: Stringy,
 
     /// Version of the application.
-    pub version: String,
+    // pub version: String,
 
     /// Maximum ram usage in MB
     pub max_ram_usage: usize,
@@ -165,16 +165,16 @@ impl AppConfig {
         Ok(())
     }
 
-    pub fn get_version(&self) -> Result<SoftwareVersion, ErrorArrayItem> {
-        let version: SoftwareVersion = serde_json::from_str(&self.version)?;
-        Ok(version)
-    }
+    // pub fn get_version(&self) -> Result<SoftwareVersion, ErrorArrayItem> {
+        // let version: SoftwareVersion = serde_json::from_str(&self.version)?;
+        // Ok(version)
+    // }
 
     /// Returns a dummy `AppConfig` with hardcoded placeholder values.
     pub fn dummy() -> Self {
         AppConfig {
             app_name: Stringy::from("MyDummyApp"),
-            version: SoftwareVersion::dummy().to_string(),
+            // version: SoftwareVersion::dummy().to_string(),
             max_ram_usage: 512,
             max_cpu_usage: 80,
             environment: "development".to_string(),
@@ -189,21 +189,21 @@ impl AppConfig {
 
 impl fmt::Display for AppConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let version = self.get_version().unwrap_or(SoftwareVersion::dummy());
+        // let version = self.get_version().unwrap_or(SoftwareVersion::dummy());
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
-        writeln!(
-            f,
-            "  {}: {}",
-            "Application Version".bold().cyan(),
-            version.application
-        )?;
-        writeln!(
-            f,
-            "  {}: {}",
-            "Library Version".bold().cyan(),
-            version.library
-        )?;
+        // writeln!(
+            // f,
+            // "  {}: {}",
+            // "Application Version".bold().cyan(),
+            // version.application
+        // )?;
+        // writeln!(
+            // f,
+            // "  {}: {}",
+            // "Library Version".bold().cyan(),
+            // version.library
+        // )?;
         writeln!(f, "  {}: {}", "Log Level".bold().cyan(), self.log_level)?;
         writeln!(f, "  {}: {}", "Ram Limit".bold().cyan(), self.max_ram_usage)?;
         writeln!(

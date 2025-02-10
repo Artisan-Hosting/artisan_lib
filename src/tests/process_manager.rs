@@ -9,7 +9,7 @@ mod tests {
     use crate::timestamp::current_timestamp;
 
     use dusa_collection_utils::errors::Errors;
-    use dusa_collection_utils::types::PathType;
+    use dusa_collection_utils::types::pathtype::PathType;
     use dusa_collection_utils::version::SoftwareVersion;
     use nix::unistd::Pid;
     use std::path::PathBuf;
@@ -181,6 +181,7 @@ mod tests {
         let mut state = AppState {
             data: String::new(),
             event_counter: 0,
+            stared_at: current_timestamp(),
             name: String::new(),
             version: SoftwareVersion::dummy(),
             status: Status::Building,
@@ -219,6 +220,7 @@ mod tests {
             data: String::new(),
             event_counter: 0,
             name: String::new(),
+            stared_at: current_timestamp(),
             version: SoftwareVersion::dummy(),
             status: Status::Building,
             pid: 0,
@@ -248,6 +250,7 @@ mod tests {
             data: String::new(),
             event_counter: 0,
             name: String::new(),
+            stared_at: current_timestamp(),
             version: SoftwareVersion::dummy(),
             status: Status::Building,
             pid: 0,

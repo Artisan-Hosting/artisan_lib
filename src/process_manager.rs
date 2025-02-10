@@ -1,7 +1,8 @@
-use dusa_collection_utils::errors::Errors;
+use dusa_collection_utils::errors::{ErrorArrayItem, Errors};
 use dusa_collection_utils::log;
-use dusa_collection_utils::log::LogLevel;
-use dusa_collection_utils::rwarc::LockWithTimeout;
+use dusa_collection_utils::logger::LogLevel;
+use dusa_collection_utils::types::pathtype::PathType;
+use dusa_collection_utils::types::rwarc::LockWithTimeout;
 use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
@@ -14,7 +15,6 @@ use tokio::task::JoinHandle;
 use crate::aggregator::Metrics;
 use crate::resource_monitor::ResourceMonitorLock;
 use crate::state_persistence::{log_error, update_state, AppState};
-use dusa_collection_utils::{errors::ErrorArrayItem, types::PathType};
 
 /// A wrapper around [`LockWithTimeout<Child>`] that synchronizes access to a
 /// [`tokio::process::Child`]. This allows safe concurrent reads/writes or attempts to kill
@@ -67,8 +67,7 @@ impl SupervisedProcess {
         let supervised_process: Option<SupervisedProcess> = if active {
             Some(SupervisedProcess {
                 pid,
-                monitor: ResourceMonitorLock::new(pid.as_raw())
-                    .map_err(|err| ErrorArrayItem::new(Errors::GeneralError, err.to_string()))?,
+                monitor: ResourceMonitorLock::new(pid.as_raw())?,
                 monitor_handle: None,
             })
         } else {
@@ -198,6 +197,20 @@ impl SupervisedProcess {
             log!(LogLevel::Trace, "Terminating monitor");
             handle.abort();
             self.monitor_handle = None;
+        }
+    }
+
+    /// Checks if there is currently a resource monitor running
+    /// for a given [`SupervisedProcess`]
+    pub fn monitoring(&mut self) -> bool {
+        if let Some(handle) = &self.monitor_handle {
+            if handle.is_finished() {
+                false 
+            } else {
+                true
+            }
+        } else {
+            false
         }
     }
 

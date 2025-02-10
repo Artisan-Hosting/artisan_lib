@@ -21,8 +21,10 @@
 
 use colored::Colorize;
 use dusa_collection_utils::log;
+use dusa_collection_utils::logger::LogLevel;
+use dusa_collection_utils::types::stringy::Stringy;
 use dusa_collection_utils::version::SoftwareVersion;
-use dusa_collection_utils::{errors::ErrorArrayItem, log::LogLevel, stringy::Stringy};
+use dusa_collection_utils::{errors::ErrorArrayItem};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
 use simple_comms::network::send_receive::send_message;
@@ -480,74 +482,4 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     // Clearing screen can be done if needed:
     // print!("\x1B[2J\x1B[H");
     Ok(apps)
-}
-
-/// Registers the current application with a remote aggregator if configured. 
-/// Sends a `RegisterApp` message over a Unix socket and handles the response.
-///
-/// # Arguments
-///
-/// * `app` - A reference to the application state, including aggregator configuration.
-///
-/// # Returns
-///
-/// * `Ok(())` on success.
-/// * `Err(ErrorArrayItem)` if the Unix socket connection or message transmission fails.
-pub async fn register_app(app: &AppState) -> Result<(), ErrorArrayItem> {
-    log!(LogLevel::Trace, "Registering with aggregator");
-    let app = app.clone();
-
-    let app_message = AppMessage::Register(RegisterApp {
-        app_id: app.config.app_name.clone(),
-        app_name: app.config.app_name.to_string(),
-        expected_status: Status::Running,
-        system_application: true,
-        registration_timestamp: current_timestamp(),
-    });
-
-    match &app.config.aggregator {
-        Some(agg) => {
-            let mut stream = UnixStream::connect(agg.socket_path.clone()).await?;
-            let response = send_message::<UnixStream, AppMessage, AppMessage>(
-                &mut stream,
-                Flags::NONE,
-                app_message,
-                Proto::UNIX,
-                false,
-            )
-            .await?;
-
-            match response {
-                Ok(message) => {
-                    let payload: AppMessage = message.get_payload().await;
-                    match payload {
-                        AppMessage::Response(command_response) => {
-                            if command_response.success {
-                                log!(LogLevel::Trace, "State updated with aggregator !");
-                            }
-                        }
-                        _ => log!(
-                            LogLevel::Warn,
-                            "Illegal response received while reporting status"
-                        ),
-                    }
-
-                    Ok(())
-                }
-                Err(err) => {
-                    log!(
-                        LogLevel::Warn,
-                        "Updating app status with aggregator failed. Received {} from server",
-                        err
-                    );
-                    // Failing gracefully: not returning error, but returning Ok(())
-                    return Ok(());
-                }
-            }
-        }
-        None => {
-            log!(LogLevel::Trace, "Aggregator not configured");
-            Ok(())
-        }
-    }
 }

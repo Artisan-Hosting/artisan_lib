@@ -1,9 +1,7 @@
 use core::fmt;
 use colored::Colorize;
 use dusa_collection_utils::{
-    functions::{create_hash, truncate},
-    stringy::Stringy,
-    version::SoftwareVersion,
+    functions::{create_hash, truncate}, types::stringy::Stringy, version::SoftwareVersion
 };
 use serde::{Deserialize, Serialize};
 
@@ -434,10 +432,10 @@ pub struct CommandResponse {
     pub params: serde_json::Value,
 
     /// The time the command was placed into the queue (in ISO 8601 format or similar).
-    pub queued_at: String,
+    pub queued_at: u64,
 
     /// The current status of this command, such as `"in-progress"`, `"success"`, or `"error"`.
-    pub status: String,
+    pub status: Status,
 }
 
 /// Provides extended information about the status of a previously invoked command,

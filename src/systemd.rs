@@ -1,4 +1,6 @@
 use std::error::Error;
+use std::process::ExitStatus;
+use std::process::Child;
 use std::{fmt, io};
 
 use dusa_collection_utils::stringy::Stringy;
@@ -54,6 +56,12 @@ impl SystemdService {
         Ok(())
     }
 
+    /// kills a service and its children 
+    pub fn kill(&self) -> Result<(), Box<dyn Error>> {
+        systemctl(["kill", &format!("{}.service", self.service_name)].to_vec())?;
+        Ok(())
+    }
+
     /// Restart the service.
     pub fn restart(&self) -> Result<(), Box<dyn Error>> {
         systemctl::reload_or_restart(&format!("{}.service", &self.service_name))?;
@@ -64,4 +72,22 @@ impl SystemdService {
     pub fn is_active(&self) -> Result<bool, Box<dyn Error>> {
         Ok(systemctl::is_active(&format!("{}.service", &self.service_name))?)
     }
+}
+
+
+// Just ripped out of a crate
+const SYSTEMCTL_PATH: &str = "/usr/bin/systemctl";
+
+/// Invokes `systemctl $args`
+fn spawn_child(args: Vec<&str>) -> std::io::Result<Child> {
+    std::process::Command::new(std::env::var("SYSTEMCTL_PATH").unwrap_or(SYSTEMCTL_PATH.into()))
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+}
+
+/// Invokes `systemctl $args` silently
+fn systemctl(args: Vec<&str>) -> std::io::Result<ExitStatus> {
+    spawn_child(args)?.wait()
 }

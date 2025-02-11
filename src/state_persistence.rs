@@ -50,7 +50,7 @@ pub struct AppState {
     /// (e.g., each critical operation increases it by 1).
     pub event_counter: u32,
 
-    /// A list of errors encountered during runtime. Useful for debugging or post-mortem analysis.
+    /// A list of errors at the Artisan Infrastructure level to assist with runner post mordems
     pub error_log: Vec<ErrorArrayItem>,
 
     /// Configuration settings loaded from external sources (e.g., a config file).
@@ -58,6 +58,12 @@ pub struct AppState {
 
     /// Indicates if the application is a core system process (`true`) or a user application (`false`).
     pub system_application: bool,
+
+    /// The captured output of the standart output with timestamps
+    pub stdout: Vec<(u64, String)>,
+
+    /// The captured output of the standart error with timestamps
+    pub stderr: Vec<(u64, String)>,
 }
 
 impl fmt::Display for AppState {
@@ -196,6 +202,10 @@ impl fmt::Display for AppState {
         }
 
         writeln!(f, "Status: {}", &self.status)?;
+
+        writeln!(f, "Standart Out Configured: {}", if !&self.stdout.is_empty() { "YES".green().bold() } else { "NO".red().bold() })?;
+        writeln!(f, "Standart Error Configured: {}", if !&self.stderr.is_empty() { "YES".green().bold() } else { "NO".red().bold() })?;
+
 
         Ok(())
     }

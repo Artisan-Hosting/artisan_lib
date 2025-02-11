@@ -190,6 +190,8 @@ mod tests {
             error_log: Vec::new(),
             config: AppConfig::dummy(),
             system_application: false,
+            stderr: Vec::new(),
+            stdout: Vec::new(),
         };
         let state_path = PathType::PathBuf(PathBuf::from("/tmp/test_state.json"));
 
@@ -228,6 +230,8 @@ mod tests {
             error_log: Vec::new(),
             config: AppConfig::dummy(),
             system_application: false,
+            stderr: Vec::new(),
+            stdout: Vec::new(),
         };
         let state_path = PathType::PathBuf(PathBuf::from("/tmp/test_state_inherit.json"));
 
@@ -258,6 +262,8 @@ mod tests {
             error_log: Vec::new(),
             config: AppConfig::dummy(),
             system_application: false,
+            stderr: Vec::new(),
+            stdout: Vec::new(),
         };
         let state_path = PathType::PathBuf(PathBuf::from("/tmp/test_state_failure.json"));
 

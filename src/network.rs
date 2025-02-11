@@ -1,21 +1,21 @@
+use dusa_collection_utils::{log, logger::LogLevel};
 use std::error::Error;
 use std::net::IpAddr;
-use dusa_collection_utils::{log, logger::LogLevel};
 use trust_dns_resolver::{
     config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts},
     AsyncResolver,
 };
 
-/// Resolves a given URL to its corresponding IP addresses using a DNS resolver. 
+/// Resolves a given URL to its corresponding IP addresses using a DNS resolver.
 /// If no custom resolver address is provided, it defaults to `1.1.1.1` (Cloudflare).
 ///
 /// # Arguments
-/// 
+///
 /// * `url` - The URL (hostname) to resolve (e.g., "example.com").
 /// * `resolver_addr` - An optional custom IP address for the DNS resolver. If `None`, `1.1.1.1` is used.
 ///
 /// # Returns
-/// 
+///
 /// * `Ok(Some(Vec<IpAddr>))` if the resolution succeeds, returning a vector of IP addresses.
 /// * `Ok(None)` if the resolution fails to find any records or encounters an error during lookup.
 /// * `Err(Box<dyn Error>)` if there is an error configuring the resolver (e.g., invalid IP address format).
@@ -37,7 +37,10 @@ use trust_dns_resolver::{
 ///     }
 /// # });
 /// ```
-pub async fn resolve_url(url: &str, resolver_addr: Option<IpAddr>) -> Result<Option<Vec<IpAddr>>, Box<dyn Error>> {
+pub async fn resolve_url(
+    url: &str,
+    resolver_addr: Option<IpAddr>,
+) -> Result<Option<Vec<IpAddr>>, Box<dyn Error>> {
     // Configure the resolver to use Cloudflare's DNS or the custom IP address
     let address: IpAddr = match resolver_addr {
         Some(given) => match given {
@@ -51,8 +54,8 @@ pub async fn resolve_url(url: &str, resolver_addr: Option<IpAddr>) -> Result<Opt
     let resolver = format!("{}:53", address);
 
     let resolver_config = ResolverConfig::from_parts(
-        None,        // Use the system domain
-        vec![],      // No search list
+        None,   // Use the system domain
+        vec![], // No search list
         vec![NameServerConfig {
             socket_addr: resolver.parse()?,
             protocol: Protocol::Udp,
@@ -71,10 +74,10 @@ pub async fn resolve_url(url: &str, resolver_addr: Option<IpAddr>) -> Result<Opt
         Ok(response) => {
             let ips: Vec<_> = response.iter().collect();
             Ok(Some(ips))
-        },
+        }
         Err(err) => {
             log!(LogLevel::Error, "Failed to resolve {}: {}", url, err);
             Ok(None)
-        },
+        }
     }
 }

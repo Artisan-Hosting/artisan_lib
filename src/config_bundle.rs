@@ -1,4 +1,6 @@
-use dusa_collection_utils::{errors::ErrorArrayItem, functions::current_timestamp, version::SoftwareVersion};
+use dusa_collection_utils::{
+    errors::ErrorArrayItem, functions::current_timestamp, version::SoftwareVersion,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -15,7 +17,11 @@ pub struct ApplicationConfig {
 }
 
 impl ApplicationConfig {
-    pub fn new(state: AppState, enviornment: Option<Enviornment>, custom: Option<serde_json::Value>) -> Self {
+    pub fn new(
+        state: AppState,
+        enviornment: Option<Enviornment>,
+        custom: Option<serde_json::Value>,
+    ) -> Self {
         Self {
             config: state.clone().config,
             state,
@@ -85,11 +91,11 @@ impl ApplicationConfig {
         match append {
             true => {
                 self.state.error_log.append(&mut errors);
-            },
+            }
             false => {
                 self.clear_errors();
                 self.state.error_log = errors;
-            },
+            }
         }
     }
 

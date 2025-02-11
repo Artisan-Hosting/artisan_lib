@@ -1,7 +1,9 @@
-use core::fmt;
 use colored::Colorize;
+use core::fmt;
 use dusa_collection_utils::{
-    functions::{create_hash, truncate}, types::stringy::Stringy, version::SoftwareVersion
+    functions::{create_hash, truncate},
+    types::stringy::Stringy,
+    version::SoftwareVersion,
 };
 use serde::{Deserialize, Serialize};
 
@@ -33,10 +35,7 @@ pub struct ProjectInfo {
 
 impl ProjectInfo {
     pub fn get_stringy(&self) -> Stringy {
-        let data = format!(
-            "{}-{}",
-            self.identity.id, self.project_id
-        );
+        let data = format!("{}-{}", self.identity.id, self.project_id);
         let hash = create_hash(data);
         let result = truncate(&*hash, 20).to_owned();
         return result;
@@ -137,7 +136,7 @@ pub struct NodeInfo {
     /// The node’s current health or operational state (e.g., `"healthy"`, `"degraded"`).
     pub status: Status,
 
-    /// The IP address associated with this node. 
+    /// The IP address associated with this node.
     /// Uses a Rust `IpAddr` type to handle both IPv4 and IPv6.
     pub ip_address: std::net::IpAddr,
 
@@ -153,7 +152,7 @@ pub struct NodeInfo {
 
 impl NodeInfo {
     /// Generates a shortened hash-based string derived from the node’s IP address
-    /// and internal identity. 
+    /// and internal identity.
     ///
     /// This can be used for diagnostic logging, generating labels, or other reference points.
     /// The string is truncated to 20 characters for brevity.
@@ -209,7 +208,7 @@ impl NodeDetails {
 /// about the node’s environment and software state.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagerData {
-    /// The manager’s own identity object. 
+    /// The manager’s own identity object.
     /// Useful when multiple managers oversee different sets of nodes.
     pub identity: Identifier,
 
@@ -240,7 +239,7 @@ pub struct ManagerData {
 
 impl ManagerData {
     /// Generates a shortened hash-based string derived from the manager’s IP address
-    /// and internal identity. 
+    /// and internal identity.
     ///
     /// Can be used for labeling or logging purposes. The resulting string is truncated
     /// to 20 characters for readability.
@@ -273,7 +272,7 @@ pub struct NodeReloadResult {
 /// This struct can be used for listing runners for quickly describing
 /// them in aggregate form. It includes key properties such as `name`, `status`,
 /// version details, and an optional `uptime`. This is a combination of every instance
-/// of a given runner across all nodes, for more specific info about instance of a runner 
+/// of a given runner across all nodes, for more specific info about instance of a runner
 /// use ['RunnerDetails']
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RunnerSummary {
@@ -300,7 +299,7 @@ pub struct RunnerSummary {
 /// Provides detailed information about a single runner within the system.
 ///
 /// Typically returned by the "Get Runner Details" endpoint, this struct contains
-/// both fixed fields (like `id`, `status`, `version`) and flexible fields (`specific_config`) 
+/// both fixed fields (like `id`, `status`, `version`) and flexible fields (`specific_config`)
 /// that allow for runner-specific customization or dynamic configuration.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RunnerDetails {
@@ -372,7 +371,7 @@ pub struct RunnerHealth {
     pub cpu_usage: Stringy,
 
     /// Used ram
-    pub ram_usage: Stringy, 
+    pub ram_usage: Stringy,
 }
 
 /// Collects recent log entries for a runner, along with optional metadata about log storage.
@@ -404,7 +403,7 @@ pub struct CommandRequest {
     /// The command to be executed, as a string (e.g., "start-runner").
     pub command: String,
 
-    /// A JSON object holding any additional parameters needed by the command. 
+    /// A JSON object holding any additional parameters needed by the command.
     /// May be empty (`{}`) if no extra data is required.
     #[serde(default)]
     pub params: serde_json::Value,
@@ -519,7 +518,7 @@ pub struct Metrics {
     /// The percentage of CPU usage (e.g., `15.2` for ~15% CPU usage).
     pub cpu_usage: f64,
 
-    /// A string describing memory usage (e.g., `"350MB"`). 
+    /// A string describing memory usage (e.g., `"350MB"`).
     /// Could be replaced with a numeric type for more precise calculation.
     pub memory_usage: String,
 
@@ -532,7 +531,7 @@ pub struct Metrics {
 // =============================================================================
 
 impl fmt::Display for ManagerData {
-    /// Renders a human-readable summary of `ManagerData` fields, 
+    /// Renders a human-readable summary of `ManagerData` fields,
     /// applying colored output where applicable (e.g., version, git config, etc.).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

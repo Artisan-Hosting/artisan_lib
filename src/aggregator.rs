@@ -1,8 +1,8 @@
 //! # Manager Data Module
 //!
-//! This module provides structures, enums, and functions for managing and 
-//! communicating application states in the AIS Manager system. It includes 
-//! mechanisms for encrypting/decrypting data, sending/receiving messages 
+//! This module provides structures, enums, and functions for managing and
+//! communicating application states in the AIS Manager system. It includes
+//! mechanisms for encrypting/decrypting data, sending/receiving messages
 //! through Unix sockets, and storing application status information locally.
 //!
 //! ## Overview
@@ -12,18 +12,18 @@
 //! - **Metrics**: Holds runtime metrics (CPU, memory usage, etc.).
 //! - **AppStatus**: A snapshot of an application's current state.
 //! - **CommandResponse**: A response from the system after processing a command.
-//! - **RegisterApp / DeregisterApp / UpdateApp**: Messages used for registering, 
+//! - **RegisterApp / DeregisterApp / UpdateApp**: Messages used for registering,
 //!   deregistering, or updating an application's status.
 //! - **AppMessage**: Aggregates all message variants (Register, Deregister, Update, etc.).
-//! - **save_registered_apps / load_registered_apps**: Handle storing and loading of 
+//! - **save_registered_apps / load_registered_apps**: Handle storing and loading of
 //!   `AppStatus` data locally.
 //! - **register_app**: Registers an application with a remote aggregator if configured.
 
 use colored::Colorize;
+use dusa_collection_utils::errors::ErrorArrayItem;
 use dusa_collection_utils::log;
 use dusa_collection_utils::logger::LogLevel;
 use dusa_collection_utils::types::stringy::Stringy;
-use dusa_collection_utils::errors::ErrorArrayItem;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
 use std::{
@@ -120,7 +120,7 @@ impl fmt::Display for Status {
 // Structs
 //
 
-/// Represents a command that can be issued to an application, including the 
+/// Represents a command that can be issued to an application, including the
 /// application identifier, command type, and timestamp.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
@@ -386,7 +386,7 @@ impl fmt::Display for UpdateApp {
     }
 }
 
-/// Encapsulates different message variants related to application registration, 
+/// Encapsulates different message variants related to application registration,
 /// updates, and aggregator communication.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AppMessage {
@@ -421,7 +421,7 @@ impl fmt::Display for AppMessage {
 // Functions
 //
 
-/// Saves a slice of `AppStatus` objects to a JSON file at [`AGGREGATOR_PATH`], 
+/// Saves a slice of `AppStatus` objects to a JSON file at [`AGGREGATOR_PATH`],
 /// encrypting the data before writing.
 ///
 /// # Arguments
@@ -448,7 +448,7 @@ pub async fn save_registered_apps(apps: &[AppStatus]) -> Result<(), ErrorArrayIt
     }
 }
 
-/// Loads a list of `AppStatus` objects from the JSON file at [`AGGREGATOR_PATH`], 
+/// Loads a list of `AppStatus` objects from the JSON file at [`AGGREGATOR_PATH`],
 /// decrypting the data after reading.
 ///
 /// # Returns
@@ -462,11 +462,14 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     file.read_to_string(&mut encrypted_data)?;
 
     // let data: Stringy = decrypt_text(Stringy::from(encrypted_data)).await?;
-    let data: Stringy = simple_decrypt(encrypted_data.as_bytes())
-        .map(|data| -> Result<Stringy, ErrorArrayItem> {
-            let d = String::from_utf8(data).map_err(ErrorArrayItem::from).map(Stringy::from)?;
+    let data: Stringy = simple_decrypt(encrypted_data.as_bytes()).map(
+        |data| -> Result<Stringy, ErrorArrayItem> {
+            let d = String::from_utf8(data)
+                .map_err(ErrorArrayItem::from)
+                .map(Stringy::from)?;
             Ok(d)
-        })??;
+        },
+    )??;
 
     let apps: Vec<AppStatus> = serde_json::from_str(&data)?;
     for app in apps.clone() {

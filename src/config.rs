@@ -1,9 +1,7 @@
 use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
-use dusa_collection_utils::{
-    logger::LogLevel, types::stringy::Stringy, version::SoftwareVersion
-};
+use dusa_collection_utils::{logger::LogLevel, types::stringy::Stringy, version::SoftwareVersion};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 
@@ -166,8 +164,8 @@ impl AppConfig {
     }
 
     // pub fn get_version(&self) -> Result<SoftwareVersion, ErrorArrayItem> {
-        // let version: SoftwareVersion = serde_json::from_str(&self.version)?;
-        // Ok(version)
+    // let version: SoftwareVersion = serde_json::from_str(&self.version)?;
+    // Ok(version)
     // }
 
     /// Returns a dummy `AppConfig` with hardcoded placeholder values.
@@ -193,16 +191,16 @@ impl fmt::Display for AppConfig {
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
         // writeln!(
-            // f,
-            // "  {}: {}",
-            // "Application Version".bold().cyan(),
-            // version.application
+        // f,
+        // "  {}: {}",
+        // "Application Version".bold().cyan(),
+        // version.application
         // )?;
         // writeln!(
-            // f,
-            // "  {}: {}",
-            // "Library Version".bold().cyan(),
-            // version.library
+        // f,
+        // "  {}: {}",
+        // "Library Version".bold().cyan(),
+        // version.library
         // )?;
         writeln!(f, "  {}: {}", "Log Level".bold().cyan(), self.log_level)?;
         writeln!(f, "  {}: {}", "Ram Limit".bold().cyan(), self.max_ram_usage)?;

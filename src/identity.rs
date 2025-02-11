@@ -1,7 +1,9 @@
 use dusa_collection_utils::{
     errors::{ErrorArrayItem, Errors},
     functions::{create_hash, truncate},
-    log, logger::LogLevel, types::{pathtype::PathType, stringy::Stringy},
+    log,
+    logger::LogLevel,
+    types::{pathtype::PathType, stringy::Stringy},
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};

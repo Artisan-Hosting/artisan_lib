@@ -1,4 +1,7 @@
-use dusa_collection_utils::{types::stringy::Stringy, version::{Version, VersionCode}};
+use dusa_collection_utils::{
+    types::stringy::Stringy,
+    version::{Version, VersionCode},
+};
 
 use crate::RELEASEINFO;
 
@@ -16,7 +19,6 @@ pub fn aml_version() -> Version {
     }
 }
 
-
 pub fn str_to_version(cargo_pkg_version: &str, release_code: Option<VersionCode>) -> Version {
     let mut parts = cargo_pkg_version.split('.');
 
@@ -32,5 +34,5 @@ pub fn str_to_version(cargo_pkg_version: &str, release_code: Option<VersionCode>
     Version {
         number: Stringy::from(format!("{}.{}.{}", major, minor, patch)),
         code,
-    }   
+    }
 }

@@ -1,7 +1,10 @@
-use core::fmt;
 use colored::Colorize;
+use core::fmt;
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors}, log, logger::LogLevel, types::stringy::Stringy
+    errors::{ErrorArrayItem, Errors},
+    log,
+    logger::LogLevel,
+    types::stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,11 +46,11 @@ impl fmt::Display for ApplicationType {
 }
 
 /// An overarching enum for environment configurations. Currently, it supports:
-/// 
+///
 /// - **`V1`** (`Enviornment_V1`): A first-generation environment configuration.
 /// - **`V2`** (`Enviornment_V2`): A second-generation environment configuration (not documented yet).
 ///
-/// This enum’s [`parse`] method attempts to decrypt and parse raw bytes into one of the 
+/// This enum’s [`parse`] method attempts to decrypt and parse raw bytes into one of the
 /// available environment versions based on a version tag (like `#? version:1` or `#? version:2`).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Enviornment {
@@ -60,7 +63,7 @@ pub enum Enviornment {
 
 impl Enviornment {
     /// Parses raw, encrypted data into either `Enviornment::V1` or `Enviornment::V2`.
-    /// 
+    ///
     /// # Procedure
     /// - Decrypts the provided data using [`simple_decrypt`].
     /// - Reads the first line to determine the version tag (e.g., `#? version:1` or `#? version:2`).
@@ -130,7 +133,7 @@ impl fmt::Display for Enviornment {
 /// and running an application. This includes user/group IDs, ports, secrets, build commands, etc.
 ///
 /// # Fields
-/// 
+///
 /// * `application_type` - An optional [`ApplicationType`] indicating the kind of application (e.g. Python, Angular).
 /// * `execution_uid` - Optional user ID used when spawning child processes.
 /// * `execution_gid` - Optional group ID used when spawning child processes.
@@ -142,17 +145,17 @@ impl fmt::Display for Enviornment {
 #[allow(non_camel_case_types)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Enviornment_V1 {
-    pub application_type:       Option<ApplicationType>,
-    pub execution_uid:          Option<u16>,
-    pub execution_gid:          Option<u16>,
+    pub application_type: Option<ApplicationType>,
+    pub execution_uid: Option<u16>,
+    pub execution_gid: Option<u16>,
     pub primary_listening_port: Option<u16>,
-    pub secret_id:              Option<Stringy>,
-    pub secret_passwd:          Option<Stringy>,
-    pub path_modifier:          Option<Stringy>,
-    pub pre_build_command:      Option<Stringy>,
-    pub build_command:          Option<Stringy>,
-    pub run_command:            Option<Stringy>,
-    pub env_key_0:              Option<(Stringy, Stringy)>,
+    pub secret_id: Option<Stringy>,
+    pub secret_passwd: Option<Stringy>,
+    pub path_modifier: Option<Stringy>,
+    pub pre_build_command: Option<Stringy>,
+    pub build_command: Option<Stringy>,
+    pub run_command: Option<Stringy>,
+    pub env_key_0: Option<(Stringy, Stringy)>,
 }
 
 impl Enviornment_V1 {
@@ -178,7 +181,7 @@ impl Enviornment_V1 {
         serde_json::to_string_pretty(&self).map_err(ErrorArrayItem::from)
     }
 
-    /// Creates a version-tagged byte vector of this V1 environment configuration 
+    /// Creates a version-tagged byte vector of this V1 environment configuration
     /// (including the `VERSION_TAG_V1` line). The data is then encrypted via [`simple_encrypt`].
     ///
     /// # Errors
@@ -315,7 +318,7 @@ impl fmt::Display for Enviornment_V1 {
 }
 
 //================================================
-// (Below code is intentionally left undocumented. 
+// (Below code is intentionally left undocumented.
 //  Enviornment_V2 is still under development.)
 //================================================
 

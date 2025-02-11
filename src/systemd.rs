@@ -1,6 +1,6 @@
 use std::error::Error;
-use std::process::ExitStatus;
 use std::process::Child;
+use std::process::ExitStatus;
 use std::{fmt, io};
 
 use dusa_collection_utils::types::stringy::Stringy;
@@ -35,12 +35,15 @@ impl SystemdService {
     /// Creates a new `SystemdService` instance with the specified service name.
     pub fn new(service_name: &str) -> io::Result<Self> {
         match systemctl::exists(&format!("{}.service", service_name))? {
-            true => {
-                Ok(Self {
-                    service_name: Stringy::Immutable(service_name.into()),
-                })
-            },
-            false => return Err(io::Error::new(io::ErrorKind::NotFound, format!{"{} not found", service_name})),
+            true => Ok(Self {
+                service_name: Stringy::Immutable(service_name.into()),
+            }),
+            false => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format! {"{} not found", service_name},
+                ))
+            }
         }
     }
 
@@ -56,7 +59,7 @@ impl SystemdService {
         Ok(())
     }
 
-    /// kills a service and its children 
+    /// kills a service and its children
     pub fn kill(&self) -> Result<(), Box<dyn Error>> {
         systemctl(["kill", &format!("{}.service", self.service_name)].to_vec())?;
         Ok(())
@@ -70,10 +73,12 @@ impl SystemdService {
 
     /// Check if the service is active.
     pub fn is_active(&self) -> Result<bool, Box<dyn Error>> {
-        Ok(systemctl::is_active(&format!("{}.service", &self.service_name))?)
+        Ok(systemctl::is_active(&format!(
+            "{}.service",
+            &self.service_name
+        ))?)
     }
 }
-
 
 // Just ripped out of a crate
 const SYSTEMCTL_PATH: &str = "/usr/bin/systemctl";

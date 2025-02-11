@@ -3,25 +3,25 @@ pub use dusa_collection_utils;
 use dusa_collection_utils::version::VersionCode;
 
 // This is a successor of the artisan_platform
-pub mod config;
+pub mod aggregator;
 pub mod cli;
+pub mod config;
+pub mod config_bundle;
+pub mod control;
 pub mod encryption;
+pub mod enviornment;
 pub mod git_actions;
 pub mod identity;
+pub mod network;
 pub mod notifications;
+pub mod portal;
 pub mod process_manager;
 pub mod resource_monitor;
 pub mod state_persistence;
+pub mod systemd;
 pub mod timestamp;
 pub mod users;
-pub mod network;
-pub mod aggregator;
-pub mod systemd;
-pub mod portal;
-pub mod control;
 pub mod version;
-pub mod enviornment;
-pub mod config_bundle;
 
 pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 

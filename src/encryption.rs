@@ -59,7 +59,7 @@ static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 ///         Ok(encrypted) => println!("Encrypted data: {}", encrypted),
 ///         Err(err) => eprintln!("Encryption failed: {}", err),
 ///     }
-/// 
+///
 ///  # });
 /// ```
 #[allow(deprecated)]
@@ -98,16 +98,16 @@ pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
 /// # let rt = Runtime::new().unwrap();
 /// # let text = Stringy::from("sensitive information");
 /// # rt.block_on(async {
-/// 
+///
 ///     #[allow(deprecated)]
 ///     let encrypted = encrypt_text(text).await.unwrap();
-/// 
+///
 ///     #[allow(deprecated)]
 ///     match decrypt_text(encrypted).await {
 ///         Ok(decrypted) => println!("Decrypted data: {}", decrypted),
 ///         Err(err) => eprintln!("Decryption failed: {}", err),
 ///     }
-/// 
+///
 /// # });
 /// ```
 #[allow(deprecated)]

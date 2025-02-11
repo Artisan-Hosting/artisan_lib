@@ -1,20 +1,20 @@
 use colored::Colorize;
 use dusa_collection_utils::errors::Errors;
 use dusa_collection_utils::functions::current_timestamp;
-use dusa_collection_utils::logger::{LogLevel, set_log_level};
+use dusa_collection_utils::logger::{set_log_level, LogLevel};
 use dusa_collection_utils::types::pathtype::PathType;
 use dusa_collection_utils::types::stringy::Stringy;
 use dusa_collection_utils::version::SoftwareVersion;
 use serde::{Deserialize, Serialize};
 use std::{fmt, fs};
 
-use dusa_collection_utils::{errors::ErrorArrayItem};
-use dusa_collection_utils::log;
 use crate::aggregator::{Metrics, Status};
+use crate::config::AppConfig;
 use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::git_actions::GitServer;
 use crate::timestamp::format_unix_timestamp;
-use crate::config::AppConfig;
+use dusa_collection_utils::errors::ErrorArrayItem;
+use dusa_collection_utils::log;
 
 /// Represents the application’s overall state, including:
 /// - **Application name and version**  
@@ -46,7 +46,7 @@ pub struct AppState {
     /// A Unix timestamp created when the application was initially launched
     pub stared_at: u64,
 
-    /// An incrementing counter used to detect if the application is actively performing actions 
+    /// An incrementing counter used to detect if the application is actively performing actions
     /// (e.g., each critical operation increases it by 1).
     pub event_counter: u32,
 
@@ -249,7 +249,10 @@ impl StatePersistence {
         })?;
 
         let cipher_string = String::from_utf8(content).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to convert to string")
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to convert to string",
+            )
         })?;
 
         let state: AppState = toml::from_str(&cipher_string)?;

@@ -5,7 +5,7 @@ use dusa_collection_utils::{errors::ErrorArrayItem, types::stringy::Stringy};
 use crate::encryption::simple_encrypt;
 
 /// Capture user input from the terminal
-/// Returns a `Stringy` item after printing the prompt 
+/// Returns a `Stringy` item after printing the prompt
 /// `message: `
 pub fn get_user_input(prompt: &str) -> Stringy {
     print!("{}: ", prompt); // Print the prompt message

@@ -1,6 +1,12 @@
-use std::{fs, os::unix::fs::{chown, PermissionsExt}};
+use std::{
+    fs,
+    os::unix::fs::{chown, PermissionsExt},
+};
 
-use dusa_collection_utils::{errors::{ErrorArrayItem, Errors}, types::pathtype::PathType};
+use dusa_collection_utils::{
+    errors::{ErrorArrayItem, Errors},
+    types::pathtype::PathType,
+};
 use users::{Groups, Users, UsersCache};
 use walkdir::WalkDir;
 
@@ -28,7 +34,6 @@ pub fn get_id(user: &str) -> Result<(u32, u32), ErrorArrayItem> {
 
     let ais_uid = uid_result?;
     let ais_gid = gid_result?;
-
 
     Ok((ais_uid, ais_gid))
 }

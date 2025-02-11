@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::Duration;
 use tokio::{sync::Notify, time::timeout};
 
-/// A control structure used to toggle between "paused" and "resumed" states, 
+/// A control structure used to toggle between "paused" and "resumed" states,
 /// allowing asynchronous tasks to wait until they are resumed.
 #[derive(Debug)]
 pub struct ToggleControl {
@@ -86,7 +86,7 @@ impl ToggleControl {
     /// this method returns, allowing the waiting task to proceed.
     ///
     /// # Notes
-    /// This method uses a loop to re-check the pause state after each `notify_resume` 
+    /// This method uses a loop to re-check the pause state after each `notify_resume`
     /// notification in case the control is paused again in quick succession.
     ///
     /// # Examples

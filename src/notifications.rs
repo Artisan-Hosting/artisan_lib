@@ -2,7 +2,10 @@ use colored::Colorize;
 use dusa_collection_utils::{
     errors::{
         ErrorArrayItem, Errors, OkWarning, UnifiedResult, WarningArray, WarningArrayItem, Warnings,
-    }, log, logger::LogLevel, types::stringy::Stringy
+    },
+    log,
+    logger::LogLevel,
+    types::stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
 use simple_comms::{
@@ -18,7 +21,7 @@ const MAIL_ADDRESS: &str = "185.187.235.4:1827";
 /// Represents an email message containing a subject and a body.
 ///
 /// # Overview
-/// 
+///
 /// - **Subject** (`Stringy`): The headline or topic of the email.
 /// - **Body** (`Stringy`): The main content of the email.
 ///
@@ -127,13 +130,13 @@ impl Email {
     ///
     /// # Arguments
     ///
-    /// * `addr` - An optional address in the format `host:port`. If `None`, 
+    /// * `addr` - An optional address in the format `host:port`. If `None`,
     ///   defaults to `MAIL_ADDRESS`.
     ///
     /// # Return
     ///
-    /// Returns a [`UnifiedResult`] containing an [`OkWarning<()>`] on success, 
-    /// or an [`ErrorArrayItem`] if the connection fails, the email data is invalid, 
+    /// Returns a [`UnifiedResult`] containing an [`OkWarning<()>`] on success,
+    /// or an [`ErrorArrayItem`] if the connection fails, the email data is invalid,
     /// or the server indicates an error.
     ///
     /// # Errors
@@ -191,10 +194,10 @@ impl Email {
 
         // Send the message and handle response
         match send_message::<TcpStream, String, ()>(
-            &mut stream, 
-            Flags::OPTIMIZED, 
+            &mut stream,
+            Flags::OPTIMIZED,
             data,
-            Proto::TCP, 
+            Proto::TCP,
             false
         ).await {
             Ok(response) => {

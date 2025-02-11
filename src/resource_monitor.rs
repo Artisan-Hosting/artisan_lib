@@ -1,14 +1,17 @@
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors}, log, logger::LogLevel, types::{rwarc::LockWithTimeout, stringy::Stringy}
+    errors::{ErrorArrayItem, Errors},
+    log,
+    logger::LogLevel,
+    types::{rwarc::LockWithTimeout, stringy::Stringy},
 };
-use procfs::process::{all_processes, Process};
 use gethostname::gethostname;
-use sysinfo::System;
+use procfs::process::{all_processes, Process};
 use std::{
     collections::{HashMap, HashSet},
     io::{self, BufRead},
     time::Duration,
 };
+use sysinfo::System;
 use tokio::{task::JoinHandle, time::sleep};
 
 use crate::aggregator::Metrics;
@@ -106,7 +109,7 @@ pub struct ResourceMonitor {
     pub pid: i32,
     /// Most recently measured RAM usage, in megabytes (MB).
     pub ram: f32,
-    /// Most recently measured CPU usage, in "jiffies per second" form. 
+    /// Most recently measured CPU usage, in "jiffies per second" form.
     /// (Can be interpreted as a CPU fraction if scaled properly.)
     pub cpu: f32,
 }
@@ -143,7 +146,7 @@ impl ResourceMonitor {
 
     /// Retrieves the current CPU and RAM usage for a given [`Process`].
     ///
-    /// - **RAM** is computed by taking the resident set size (RSS) from `statm` and converting 
+    /// - **RAM** is computed by taking the resident set size (RSS) from `statm` and converting
     ///   it to MB (`(RSS * 4096) / (1024 * 1024)`).
     /// - **CPU** usage is computed via [`calculate_cpu_usage`].
     ///
@@ -172,7 +175,7 @@ impl ResourceMonitor {
         Ok((cpu_usage, memory))
     }
 
-    /// Calculates CPU usage of the process based on its kernel ticks (user + system time) and 
+    /// Calculates CPU usage of the process based on its kernel ticks (user + system time) and
     /// the system uptime. Checks `/proc/uptime` for total system uptime, and uses process start time
     /// to derive how long the process has been running.
     ///
@@ -195,7 +198,10 @@ impl ResourceMonitor {
         })?)
         .read_line(&mut uptime)
         .map_err(|e| {
-            ErrorArrayItem::new(Errors::GeneralError, format!("Failed to read uptime: {}", e))
+            ErrorArrayItem::new(
+                Errors::GeneralError,
+                format!("Failed to read uptime: {}", e),
+            )
         })?;
 
         // Parse the system uptime from the first token
@@ -205,7 +211,10 @@ impl ResourceMonitor {
             .ok_or_else(|| ErrorArrayItem::new(Errors::GeneralError, "Missing uptime data"))?
             .parse::<f64>()
             .map_err(|e| {
-                ErrorArrayItem::new(Errors::GeneralError, format!("Invalid uptime format: {}", e))
+                ErrorArrayItem::new(
+                    Errors::GeneralError,
+                    format!("Invalid uptime format: {}", e),
+                )
             })?;
 
         let process_uptime = system_uptime - (start_time / procfs::ticks_per_second() as f64);
@@ -265,7 +274,7 @@ impl ResourceMonitor {
     ///
     /// # Returns
     /// A tuple: `(average_cpu_usage, total_ram_usage)`.
-    /// 
+    ///
     /// # Behavior
     /// - Recursively finds child processes, sums CPU and RAM usage.
     /// - A "visited" set is used to prevent counting the same PID multiple times.
@@ -326,9 +335,9 @@ impl ResourceMonitor {
     }
 }
 
-/// **LEGACY** function (kept for a welcome screen on login) that retrieves basic 
+/// **LEGACY** function (kept for a welcome screen on login) that retrieves basic
 /// system-wide metrics: CPU usage, total/used RAM, total/used Swap, and the hostname.
-/// 
+///
 /// # Returns
 /// A [`HashMap<Stringy, Stringy>`] with keys such as `"CPU Usage"`, `"Total RAM"`, etc.
 pub fn get_system_stats() -> HashMap<Stringy, Stringy> {

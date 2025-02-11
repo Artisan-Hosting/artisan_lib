@@ -23,7 +23,7 @@ mod tests {
         cmd.arg("5");
 
         // Create a supervised child
-        let mut supervised_child = SupervisedChild::new(&mut cmd)
+        let mut supervised_child = SupervisedChild::new(&mut cmd, None)
             .await
             .expect("Failed to spawn supervised child");
 
@@ -48,7 +48,7 @@ mod tests {
         // Spawn a "sleep 5" child
         let mut cmd = Command::new("sleep");
         cmd.arg("5");
-        let mut original = SupervisedChild::new(&mut cmd)
+        let mut original = SupervisedChild::new(&mut cmd, None)
             .await
             .expect("Failed to spawn child");
 
@@ -69,7 +69,7 @@ mod tests {
         // Spawn a short sleep so we can grab metrics
         let mut cmd = Command::new("sleep");
         cmd.arg("2");
-        let mut supervised_child = SupervisedChild::new(&mut cmd)
+        let mut supervised_child = SupervisedChild::new(&mut cmd, None)
             .await
             .expect("Failed to spawn supervised child");
 

@@ -2,6 +2,7 @@ use dusa_collection_utils::errors::{ErrorArrayItem, Errors};
 use dusa_collection_utils::log;
 use dusa_collection_utils::logger::LogLevel;
 use dusa_collection_utils::types::pathtype::PathType;
+use dusa_collection_utils::types::rb::RollingBuffer;
 use dusa_collection_utils::types::rwarc::LockWithTimeout;
 use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
@@ -9,8 +10,10 @@ use nix::unistd::Pid;
 use std::process::Stdio;
 use std::time::Duration;
 use std::{io, thread};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 use crate::aggregator::Metrics;
 use crate::resource_monitor::ResourceMonitorLock;
@@ -34,6 +37,12 @@ pub struct SupervisedChild {
     pub monitor: ResourceMonitorLock,
     /// An optional background task handle for continuous resource monitoring.
     monitor_handle: Option<JoinHandle<()>>,
+    /// An optional background task handle for monitoring std_out/err
+    monitor_std: Option<JoinHandle<()>>,
+    /// Internal tracker for standard out
+    stdout_buffer: LockWithTimeout<RollingBuffer>,
+    /// Internal tracker for standard err
+    stderr_buffer: LockWithTimeout<RollingBuffer>,
 }
 
 /// Represents a supervised process that may not have been spawned via [`tokio::process::Command`]
@@ -205,7 +214,7 @@ impl SupervisedProcess {
     pub fn monitoring(&mut self) -> bool {
         if let Some(handle) = &self.monitor_handle {
             if handle.is_finished() {
-                false 
+                false
             } else {
                 true
             }
@@ -239,12 +248,18 @@ impl SupervisedChild {
     ///
     /// # Errors
     /// - Returns an [`ErrorArrayItem`] if spawning fails or if resource monitoring fails to initialize.
-    pub async fn new(command: &mut Command) -> Result<Self, ErrorArrayItem> {
-        let child = spawn_complex_process(command, None, true, true).await?;
+    pub async fn new(
+        command: &mut Command,
+        working_dir: Option<PathType>,
+    ) -> Result<Self, ErrorArrayItem> {
+        let child = spawn_complex_process(command, working_dir, false, true).await?; // ! set process group back to false 
         Ok(Self {
             child: child.child,
             monitor: child.monitor,
             monitor_handle: child.monitor_handle,
+            monitor_std: child.monitor_std,
+            stdout_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
+            stderr_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
         })
     }
 
@@ -262,10 +277,11 @@ impl SupervisedChild {
         }
     }
 
-    /// Clones this `SupervisedChild` without a running monitor. Terminates the existing monitor,
-    /// then duplicates the resource monitor and child lock.
+    /// Clones this `SupervisedChild` without a running monitor.  Restarts the monitors to get around clonning limits
+    /// then duplicates the resource monitor and child lock. 
     pub async fn clone(&mut self) -> Self {
         self.terminate_monitor();
+        self.terminate_stdx();
         let monitor_lock: ResourceMonitorLock = self.monitor.clone();
         let child_lock: ChildLock = self.child.clone();
 
@@ -273,6 +289,9 @@ impl SupervisedChild {
             child: child_lock,
             monitor: monitor_lock,
             monitor_handle: None,
+            monitor_std: None,
+            stdout_buffer: self.stdout_buffer.clone(),
+            stderr_buffer: self.stderr_buffer.clone(),
         }
     }
 
@@ -310,11 +329,76 @@ impl SupervisedChild {
         }
     }
 
+    /// Spawns an asynchronous resource monitoring loop for the standard out and standard error. If a monitor is
+    /// already running, this does nothing.
+    ///
+    /// # Behavior
+    /// - Undocumentd.
+    /// - Use [`terminate_monitor`] to stop the task.
+    pub async fn monitor_stdx(&mut self) {
+        if self.monitor_std.is_none() {
+            let mut sup_child = self.clone().await;
+            let std_handle = tokio::spawn(async move {
+                loop {
+                    if let Ok(mut child) = sup_child.child.0.try_write().await {
+                        if let Some(std_out) = child.stdout.take() {
+                            let proc_buffer = BufReader::new(std_out);
+                            let mut lines = proc_buffer.lines();
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                if let Ok(mut rolling) = sup_child.stdout_buffer.try_write().await {
+                                    rolling.push(line);
+                                }
+                            }
+                        }
+                        if let Some(std_err) = child.stderr.take() {
+                            let proc_buffer = BufReader::new(std_err);
+                            let mut lines = proc_buffer.lines();
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                if let Ok(mut rolling) = sup_child.stderr_buffer.try_write().await {
+                                    rolling.push(line);
+                                }
+                            }
+                        }
+                    } else {
+                        log!(LogLevel::Trace, "Failed to lock the child, for stdXreading");
+                        continue;
+                    };
+
+                    sleep(Duration::from_secs(1)).await;
+                }
+            });
+
+            sup_child.monitor_std = Some(std_handle)
+        }
+    }
+
+    /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
+    pub async fn get_std_out(&self) -> Result<Vec<String>, ErrorArrayItem> {
+        let rb = self.stdout_buffer.try_read().await?;
+        Ok(rb.get_latest())
+    }
+
+    /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
+    pub async fn get_std_err(&self) -> Result<Vec<String>, ErrorArrayItem> {
+        let rb = self.stderr_buffer.try_read().await?;
+        Ok(rb.get_latest())
+    }
+
     /// Terminates the resource monitor task, if any is currently running. This calls
     /// [`JoinHandle::abort()`] on the stored handle.
     pub fn terminate_monitor(&mut self) {
         if let Some(handle) = &self.monitor_handle {
             log!(LogLevel::Trace, "Terminating monitor");
+            handle.abort();
+            self.monitor_handle = None;
+        }
+    }
+
+    /// Terminates the resource monitor task, if any is currently running. This calls
+    /// [`JoinHandle::abort()`] on the stored handle.
+    pub fn terminate_stdx(&mut self) {
+        if let Some(handle) = &self.monitor_std {
+            log!(LogLevel::Trace, "Terminating Standart X monitor");
             handle.abort();
             self.monitor_handle = None;
         }
@@ -426,7 +510,7 @@ impl ChildLock {
 ///
 /// # Note
 /// - Does **not** create a new process group or call `setsid()`.
-/// - If you need a supervised child with reaping and resource monitoring, 
+/// - If you need a supervised child with reaping and resource monitoring,
 ///   use [`spawn_complex_process`] or [`SupervisedChild::new`].
 pub async fn spawn_simple_process(
     command: &mut Command,
@@ -444,14 +528,22 @@ pub async fn spawn_simple_process(
 
     match command.spawn() {
         Ok(child_process) => {
-            log!(LogLevel::Trace, "Child process spawned successfully: {:?}", child_process);
+            log!(
+                LogLevel::Trace,
+                "Child process spawned successfully: {:?}",
+                child_process
+            );
             state.data = String::from("Process spawned");
             state.event_counter += 1;
             update_state(state, state_path, None).await;
             Ok(child_process)
         }
         Err(e) => {
-            log!(LogLevel::Error, "Failed to spawn child process: {}", e.to_string());
+            log!(
+                LogLevel::Error,
+                "Failed to spawn child process: {}",
+                e.to_string()
+            );
             let error_item: ErrorArrayItem = ErrorArrayItem::new(
                 dusa_collection_utils::errors::Errors::InputOutput,
                 e.to_string(),
@@ -500,7 +592,10 @@ pub async fn spawn_complex_process(
             })
         };
     } else {
-        log!(LogLevel::Trace, "Complex process being spawned in the same process group");
+        log!(
+            LogLevel::Trace,
+            "Complex process being spawned in the same process group"
+        );
     }
 
     if capture_output {
@@ -517,7 +612,11 @@ pub async fn spawn_complex_process(
 
     match command.spawn() {
         Ok(child) => {
-            log!(LogLevel::Trace, "Child process spawned successfully: {:#?}", child);
+            log!(
+                LogLevel::Trace,
+                "Child process spawned successfully: {:#?}",
+                child
+            );
 
             let pid = match child.id() {
                 Some(d) => d,
@@ -545,6 +644,9 @@ pub async fn spawn_complex_process(
                 child,
                 monitor,
                 monitor_handle: None,
+                monitor_std: None,
+                stdout_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
+                stderr_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
             })
         }
         Err(error) => {

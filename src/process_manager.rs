@@ -29,6 +29,8 @@ pub struct ChildLock(pub LockWithTimeout<Child>);
 /// asynchronous context (Tokio).
 ///
 /// - The `monitor_handle` can be used to stop the resource monitor loop if needed.
+/// - The `monitor_std ` is used to monitor the standard outputs of the application.
+/// It's up to the caller to decide if / how to store and use these outputs
 /// - The resource monitor tracks CPU/memory usage via `/proc` (Linux-specific).
 pub struct SupervisedChild {
     /// The locked child process.
@@ -252,7 +254,7 @@ impl SupervisedChild {
         command: &mut Command,
         working_dir: Option<PathType>,
     ) -> Result<Self, ErrorArrayItem> {
-        let child = spawn_complex_process(command, working_dir, false, true).await?; // ! set process group back to false
+        let child = spawn_complex_process(command, working_dir, false, true).await?; // ! set process group back to false 
         Ok(Self {
             child: child.child,
             monitor: child.monitor,
@@ -278,7 +280,7 @@ impl SupervisedChild {
     }
 
     /// Clones this `SupervisedChild` without a running monitor.  Restarts the monitors to get around clonning limits
-    /// then duplicates the resource monitor and child lock.
+    /// then duplicates the resource monitor and child lock. 
     pub async fn clone(&mut self) -> Self {
         self.terminate_monitor();
         self.terminate_stdx();
@@ -302,6 +304,7 @@ impl SupervisedChild {
     /// - Returns an [`ErrorArrayItem`] on I/O issues or if reaping fails.
     pub async fn kill(&mut self) -> Result<(), ErrorArrayItem> {
         self.terminate_monitor();
+        self.terminate_stdx();
         self.child.kill().await
     }
 
@@ -373,15 +376,15 @@ impl SupervisedChild {
     }
 
     /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
-    pub async fn get_std_out(&self) -> Result<Vec<String>, ErrorArrayItem> {
+    pub async fn get_std_out(&self) -> Result<Vec<(u64, String)>, ErrorArrayItem> {
         let rb = self.stdout_buffer.try_read().await?;
-        Ok(rb.get_latest())
+        Ok(rb.get_latest_time())
     }
 
     /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
-    pub async fn get_std_err(&self) -> Result<Vec<String>, ErrorArrayItem> {
+    pub async fn get_std_err(&self) -> Result<Vec<(u64, String)>, ErrorArrayItem> {
         let rb = self.stderr_buffer.try_read().await?;
-        Ok(rb.get_latest())
+        Ok(rb.get_latest_time())
     }
 
     /// Terminates the resource monitor task, if any is currently running. This calls

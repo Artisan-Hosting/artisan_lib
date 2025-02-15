@@ -1,5 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use chrono::{Local, TimeZone, Utc};
 use dusa_collection_utils::types::stringy::Stringy;
 
 /// Retrieves the current Unix timestamp in seconds.
@@ -39,4 +40,20 @@ pub fn format_unix_timestamp(timestamp: u64) -> Stringy {
     };
 
     return Stringy::from(data);
+}
+
+/// Converts a `u64` Unix timestamp (seconds since epoch) into
+/// a human-readable string in UTC, e.g. "2025-02-07 14:05:00".
+pub fn really_format_unix_timestamp(timestamp: u64) -> String {
+    let utc_datetime = Utc.timestamp_opt(timestamp as i64, 0).single();
+
+    match utc_datetime {
+        Some(dt_utc) => {
+            // Convert that UTC datetime to the local timezone.
+            let local_time = dt_utc.with_timezone(&Local);
+            // Format as desired
+            local_time.format("%Y-%m-%d %H:%M:%S").to_string()
+        }
+        None => "Invalid timestamp".to_string(),
+    }
 }

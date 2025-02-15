@@ -144,10 +144,10 @@ pub struct NodeInfo {
     pub runners: Vec<Stringy>,
 
     /// The Unix epoch timestamp (in seconds) when this node was first registered.
-    pub created_at: u64,
+    pub created_at: Stringy,
 
     /// The Unix epoch timestamp (in seconds) of the most recent update to this node’s record.
-    pub last_updated: u64,
+    pub last_updated: Stringy,
 }
 
 impl NodeInfo {
@@ -179,10 +179,10 @@ pub struct NodeDetails {
     pub runners: Vec<Stringy>,
 
     /// The Unix epoch timestamp (in seconds) when this node was first registered.
-    pub created_at: u64,
+    pub created_at: Stringy,
 
     /// The Unix epoch timestamp (in seconds) of the most recent update to this node’s record.
-    pub last_updated: u64,
+    pub last_updated: Stringy,
 
     /// Contains additional information from the manager system overseeing this node,
     /// including version details, system metrics, and environment configuration.

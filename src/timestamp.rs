@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use chrono::{Local, TimeZone, Utc};
-use dusa_collection_utils::types::stringy::Stringy;
+use chrono::{Local, NaiveDateTime, TimeZone, Utc};
+use dusa_collection_utils::{log, logger::LogLevel, types::stringy::Stringy};
 
 /// Retrieves the current Unix timestamp in seconds.
 pub fn current_timestamp() -> u64 {
@@ -14,7 +14,7 @@ pub fn current_timestamp() -> u64 {
 }
 
 /// Converts a Unix timestamp to a human-readable string.
-pub fn format_unix_timestamp(timestamp: u64) -> Stringy {
+pub fn timesince_unix_timestamp(timestamp: u64) -> Stringy {
     let duration: Duration = Duration::from_secs(timestamp);
     let datetime: SystemTime = UNIX_EPOCH + duration;
     let now: SystemTime = SystemTime::now();
@@ -44,7 +44,7 @@ pub fn format_unix_timestamp(timestamp: u64) -> Stringy {
 
 /// Converts a `u64` Unix timestamp (seconds since epoch) into
 /// a human-readable string in UTC, e.g. "2025-02-07 14:05:00".
-pub fn really_format_unix_timestamp(timestamp: u64) -> String {
+pub fn format_unix_timestamp(timestamp: u64) -> String {
     let utc_datetime = Utc.timestamp_opt(timestamp as i64, 0).single();
 
     match utc_datetime {
@@ -55,5 +55,16 @@ pub fn really_format_unix_timestamp(timestamp: u64) -> String {
             local_time.format("%Y-%m-%d %H:%M:%S").to_string()
         }
         None => "Invalid timestamp".to_string(),
+    }
+}
+
+
+pub fn time_to_unix_timestamp(datetime: &str) -> Option<u64> {
+    match NaiveDateTime::parse_from_str(datetime, "%Y-%m-%d %H:%M:%S") {
+        Ok(_) => todo!(),
+        Err(err) => {
+            log!(LogLevel::Error, "Error converting time to timestamp: {}", err.to_string());
+            None
+        },
     }
 }

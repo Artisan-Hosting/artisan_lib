@@ -254,7 +254,7 @@ impl SupervisedChild {
         command: &mut Command,
         working_dir: Option<PathType>,
     ) -> Result<Self, ErrorArrayItem> {
-        let child = spawn_complex_process(command, working_dir, false, true).await?; // ! set process group back to false 
+        let child = spawn_complex_process(command, working_dir, false, true).await?; // ! set process group back to false
         Ok(Self {
             child: child.child,
             monitor: child.monitor,
@@ -280,7 +280,7 @@ impl SupervisedChild {
     }
 
     /// Clones this `SupervisedChild` without a running monitor.  Restarts the monitors to get around clonning limits
-    /// then duplicates the resource monitor and child lock. 
+    /// then duplicates the resource monitor and child lock.
     pub async fn clone(&mut self) -> Self {
         self.terminate_monitor();
         self.terminate_stdx();
@@ -444,7 +444,11 @@ impl ChildLock {
     /// - Returns an [`ErrorArrayItem`] on I/O issues or if reaping fails.
     /// - If the child’s PID is invalid, returns an error.
     pub async fn kill(&self) -> Result<(), ErrorArrayItem> {
-        let child = self.0.try_read().await?;
+        let child = self
+            .0
+            .try_read_with_timeout(Some(Duration::from_secs(5)))
+            .await?;
+
         let xid = match child.id() {
             Some(xid) => xid,
             None => {

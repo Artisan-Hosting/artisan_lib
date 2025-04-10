@@ -80,7 +80,7 @@ impl fmt::Display for CommandType {
 }
 
 /// Represents different lifecycle states an application can be in.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Status {
     /// The application is in the process of starting.
     Starting,

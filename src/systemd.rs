@@ -27,6 +27,7 @@ impl fmt::Display for ServiceStatus {
 }
 
 /// Wrapper struct for a systemd service, providing control functions.
+#[derive(Debug, Clone)]
 pub struct SystemdService {
     service_name: ID,
 }

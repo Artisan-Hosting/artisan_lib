@@ -147,6 +147,13 @@ impl fmt::Display for Command {
     }
 }
 
+/// Records network TXranmitted and RXcieved
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NetworkUsage {
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
 /// Contains runtime metrics for an application, such as CPU and memory usage.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metrics {
@@ -155,7 +162,7 @@ pub struct Metrics {
     /// Memory usage in MB.
     pub memory_usage: f32,
     /// An optional field for additional metrics or notes.
-    pub other: Option<String>,
+    pub other: Option<NetworkUsage>,
 }
 
 impl fmt::Display for Metrics {
@@ -168,7 +175,7 @@ impl fmt::Display for Metrics {
             "Memory Usage".bold().yellow(),
             self.memory_usage,
             match &self.other {
-                Some(info) => format!(", {}: {}", "Other".bold().yellow(), info),
+                Some(info) => format!(", {}: {:?}", "Other".bold().yellow(), info),
                 None => "".to_string(),
             }
         )

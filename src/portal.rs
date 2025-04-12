@@ -386,6 +386,14 @@ pub struct RunnerLogs {
     // pub log_endpoint: String,
 }
 
+// TODO Document
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, PartialOrd, Eq, Ord)]
+pub struct NetworkStats {
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub note: Option<String>, // Future expansion
+}
+
 // =============================================================================
 // Command Structures (Send / Check Status of Commands)
 // =============================================================================

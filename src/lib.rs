@@ -22,6 +22,7 @@ pub mod systemd;
 pub mod timestamp;
 pub mod users;
 pub mod version;
+pub mod historics;
 
 pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 

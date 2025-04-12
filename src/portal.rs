@@ -7,6 +7,7 @@ use dusa_collection_utils::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::aggregator::Metrics;
 #[allow(unused_imports)] // for documents
 use crate::{
     aggregator::{AppStatus, Status},
@@ -294,6 +295,9 @@ pub struct RunnerSummary {
     /// When the runner is deployed on multiple nodes, this may be rounded
     /// to the closest hundred based on the longest-running node.
     pub uptime: Option<u64>,
+
+    /// A collection of all metrics data across all available instances
+    pub metrics: Option<Metrics>,
 }
 
 /// Provides detailed information about a single runner within the system.
@@ -372,6 +376,12 @@ pub struct RunnerHealth {
 
     /// Used ram
     pub ram_usage: Stringy,
+
+    /// sent bytes
+    pub tx_bytes: u64,
+
+    /// recv bytes
+    pub rx_bytes: u64,
 }
 
 /// Collects recent log entries for a runner, along with optional metadata about log storage.
@@ -515,23 +525,6 @@ pub struct RunnerLogResponse {
 
     /// A list of log entries recorded by this runner.
     pub logs: Vec<LogEntry>,
-}
-
-/// Represents a collection of basic performance metrics, typically used for monitoring.
-///
-/// This might be returned from endpoints like `GET /nodes/{nodeId}/metrics` or
-/// `GET /runners/{runnerId}/metrics`.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Metrics {
-    /// The percentage of CPU usage (e.g., `15.2` for ~15% CPU usage).
-    pub cpu_usage: f64,
-
-    /// A string describing memory usage (e.g., `"350MB"`).
-    /// Could be replaced with a numeric type for more precise calculation.
-    pub memory_usage: String,
-
-    /// The total number of seconds the entity (node or runner) has been online or active.
-    pub uptime: u64,
 }
 
 // =============================================================================

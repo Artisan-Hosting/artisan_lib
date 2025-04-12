@@ -11,6 +11,7 @@ pub mod control;
 pub mod encryption;
 pub mod enviornment;
 pub mod git_actions;
+pub mod historics;
 pub mod identity;
 pub mod network;
 pub mod notifications;
@@ -22,7 +23,6 @@ pub mod systemd;
 pub mod timestamp;
 pub mod users;
 pub mod version;
-pub mod historics;
 
 pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 

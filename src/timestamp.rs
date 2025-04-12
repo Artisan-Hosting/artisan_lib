@@ -58,13 +58,16 @@ pub fn format_unix_timestamp(timestamp: u64) -> String {
     }
 }
 
-
 pub fn time_to_unix_timestamp(datetime: &str) -> Option<u64> {
     match NaiveDateTime::parse_from_str(datetime, "%Y-%m-%d %H:%M:%S") {
         Ok(naive_dt) => Some(Utc.from_utc_datetime(&naive_dt).timestamp() as u64),
         Err(err) => {
-            log!(LogLevel::Error, "Error converting time to timestamp: {}", err.to_string());
+            log!(
+                LogLevel::Error,
+                "Error converting time to timestamp: {}",
+                err.to_string()
+            );
             None
-        },
+        }
     }
 }

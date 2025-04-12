@@ -311,7 +311,7 @@ impl GitAuth {
             format!("{}/{}/{}.git", base_url, self.user, self.repo)
         }
     }
-    
+
     /// Assembles the SSH Git remote URL based on the provided information.
     ///
     /// # Returns
@@ -319,17 +319,17 @@ impl GitAuth {
     /// A full Git remote SSH URL string.
 
     /// Generates the ais_id for a given project.
-	pub fn assemble_remote_ssh(&self) -> String {
-		match &self.server {
-			GitServer::GitHub => format!("git@github.com:{}/{}.git", self.user, self.repo),
-        	GitServer::GitLab => format!("git@gitlab.com:{}/{}.git", self.user, self.repo),
-	        GitServer::Custom(host) => {
-            	let host = host.trim_end_matches('/');
-            	format!("git@{}:{}/{}.git", host, self.user, self.repo)
-        	}
-		}
-	}
-    
+    pub fn assemble_remote_ssh(&self) -> String {
+        match &self.server {
+            GitServer::GitHub => format!("git@github.com:{}/{}.git", self.user, self.repo),
+            GitServer::GitLab => format!("git@gitlab.com:{}/{}.git", self.user, self.repo),
+            GitServer::Custom(host) => {
+                let host = host.trim_end_matches('/');
+                format!("git@{}:{}/{}.git", host, self.user, self.repo)
+            }
+        }
+    }
+
     pub fn generate_id(&self) -> Stringy {
         truncate(
             &*create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),

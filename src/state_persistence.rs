@@ -203,9 +203,24 @@ impl fmt::Display for AppState {
 
         writeln!(f, "Status: {}", &self.status)?;
 
-        writeln!(f, "Standart Out Configured: {}", if !&self.stdout.is_empty() { "YES".green().bold() } else { "NO".red().bold() })?;
-        writeln!(f, "Standart Error Configured: {}", if !&self.stderr.is_empty() { "YES".green().bold() } else { "NO".red().bold() })?;
-
+        writeln!(
+            f,
+            "Standart Out Configured: {}",
+            if !&self.stdout.is_empty() {
+                "YES".green().bold()
+            } else {
+                "NO".red().bold()
+            }
+        )?;
+        writeln!(
+            f,
+            "Standart Error Configured: {}",
+            if !&self.stderr.is_empty() {
+                "YES".green().bold()
+            } else {
+                "NO".red().bold()
+            }
+        )?;
 
         Ok(())
     }

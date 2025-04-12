@@ -1,7 +1,7 @@
+use dusa_collection_utils::{errors::ErrorArrayItem, types::stringy::Stringy};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use dusa_collection_utils::{errors::ErrorArrayItem, types::stringy::Stringy};
-use serde::{Serialize, Deserialize};
 
 use crate::aggregator::Metrics;
 
@@ -41,12 +41,18 @@ impl UsageLedger {
             let net_rx_delta = current
                 .other
                 .as_ref()
-                .map(|net| net.rx_bytes.saturating_sub(last.other.as_ref().map(|n| n.rx_bytes).unwrap_or(0)))
+                .map(|net| {
+                    net.rx_bytes
+                        .saturating_sub(last.other.as_ref().map(|n| n.rx_bytes).unwrap_or(0))
+                })
                 .unwrap_or(0);
             let net_tx_delta = current
                 .other
                 .as_ref()
-                .map(|net| net.tx_bytes.saturating_sub(last.other.as_ref().map(|n| n.tx_bytes).unwrap_or(0)))
+                .map(|net| {
+                    net.tx_bytes
+                        .saturating_sub(last.other.as_ref().map(|n| n.tx_bytes).unwrap_or(0))
+                })
                 .unwrap_or(0);
 
             entry.total_cpu_time += cpu_delta;

@@ -28,6 +28,8 @@ use dusa_collection_utils::types::stringy::Stringy;
 use dusa_collection_utils::{errors::ErrorArrayItem, types::rwarc::LockWithTimeout};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use tokio::sync::broadcast;
+use tokio::sync::mpsc::UnboundedSender;
 use std::fs::create_dir_all;
 use std::time::Duration;
 use std::{
@@ -40,7 +42,7 @@ use tokio::time::interval;
 
 use crate::config_bundle::ApplicationConfig;
 use crate::encryption::{simple_decrypt, simple_encrypt};
-use crate::portal::ManagerData;
+use crate::portal::{ManagerData, ProjectInfo};
 
 /// Path where the aggregator stores AIS Manager data.
 pub const AGGREGATOR_PATH: &str = "/tmp/.ais_manager_data";
@@ -217,6 +219,7 @@ impl fmt::Display for Metrics {
 ///
 /// ### Example:
 /// ```rust
+/// use artisan_middleware::aggregator::LiveMetrics;
 /// LiveMetrics {
 ///     runner_id: "abc123".into(),
 ///     instance_id: "xyz456".into(),
@@ -263,7 +266,7 @@ pub struct UsageRecord {
 /// Accumulator that aggregates usage statistics over a time window.
 ///
 /// This is stored in memory and updated every time a new `LiveMetrics` is received.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct UsageAccumulator {
     pub total_cpu: f32,
     pub peak_cpu: f32,
@@ -276,6 +279,63 @@ pub struct UsageAccumulator {
     pub sample_count: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BilledUsageSummary {
+    pub runner_id: Stringy,
+    pub instance_id: Stringy,
+    pub total_cpu: f32,
+    pub peak_cpu: f32,
+    pub avg_memory: f32,
+    pub peak_memory: f32,
+    pub total_rx: u64,
+    pub total_tx: u64,
+    pub total_samples: u64,
+}
+
+pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
+    if records.is_empty() {
+        return None;
+    }
+
+    let mut total_cpu: f32 = 0.0;
+    let mut peak_cpu: f32 = 0.0;
+    let mut total_memory: f32 = 0.0;
+    let mut peak_memory: f32 = 0.0;
+    let mut total_rx: u64 = 0;
+    let mut total_tx: u64 = 0;
+    let mut total_samples: u64 = 0;
+
+    let runner_id = records[0].runner_id.clone();
+    let instance_id = records[0].instance_id.clone();
+
+    for r in records {
+        total_cpu += r.total_cpu;
+        peak_cpu = peak_cpu.max(r.peak_cpu);
+        total_memory += r.total_memory;
+        peak_memory = peak_memory.max(r.peak_memory);
+        total_rx += r.total_rx;
+        total_tx += r.total_tx;
+        total_samples += r.sample_count;
+    }
+
+    Some(BilledUsageSummary {
+        runner_id,
+        instance_id,
+        total_cpu,
+        peak_cpu,
+        avg_memory: if total_samples > 0 {
+            total_memory / total_samples as f32
+        } else {
+            0.0
+        },
+        peak_memory,
+        total_rx,
+        total_tx,
+        total_samples,
+    })
+}
+
+
 /// Key for mapping usage data per instance.
 /// Tuple of (runner_id, instance_id).
 pub type InstanceKey = (Stringy, Stringy);
@@ -283,6 +343,14 @@ pub type InstanceKey = (Stringy, Stringy);
 /// Thread-safe map of usage accumulators.
 /// Wrapped in a LockWithTimeout for safe concurrent access.
 pub type UsageMap = LockWithTimeout<HashMap<InstanceKey, UsageAccumulator>>;
+
+/// Shared application context containing communication and tracking handles.
+#[derive(Clone)]
+pub struct AppContext {
+    pub usage_map: UsageMap,
+    pub metrics_tx: broadcast::Sender<LiveMetrics>,
+    pub project_tx: UnboundedSender<ProjectInfo>,
+}
 
 /// Updates the accumulator with new live metrics.
 ///
@@ -369,6 +437,44 @@ pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
             }
         }
     });
+}
+
+/// Immediately flushes all current usage accumulators to disk.
+///
+/// This function is useful during shutdown, before reloads, or when manually
+/// triggering a flush for billing or debugging purposes.
+pub async fn flush_metrics_to_disk(
+    usage_map: &UsageMap,
+    output_dir: &PathType,
+) -> Result<(), ErrorArrayItem> {
+    let mut map = usage_map.try_write().await?;
+
+    let now = Utc::now();
+    let epoch = now.timestamp();
+
+    for ((runner_id, instance_id), acc) in map.drain() {
+        let record = UsageRecord {
+            timestamp_epoch: epoch,
+            runner_id,
+            instance_id,
+            total_cpu: acc.total_cpu,
+            peak_cpu: acc.peak_cpu,
+            total_memory: acc.total_memory,
+            peak_memory: acc.peak_memory,
+            total_rx: acc.total_rx,
+            total_tx: acc.total_tx,
+            sample_count: acc.sample_count,
+        };
+
+        let filename = output_dir.join(format!("usage-{}.jsonl", now.format("%Y-%m-%d")));
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(filename) {
+            if let Ok(line) = serde_json::to_string(&record) {
+                let _ = writeln!(file, "{}", line);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Represents a snapshot of an application’s state, including status, version, metrics, etc.
@@ -674,4 +780,37 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     // Clearing screen can be done if needed:
     // print!("\x1B[2J\x1B[H");
     Ok(apps)
+}
+
+/// Sets up the metrics system and project queue for asynchronous processing.
+///
+/// This function spawns the background task that flushes the usage map to disk,
+/// and it also spawns a task that listens to the metrics broadcast channel to
+/// update in-memory usage data. The returned `project_rx` should be wired into
+/// a dedicated task that handles insertion of project data via the Clipas system.
+///
+/// Returns an `AppContext` to be passed throughout the application.
+pub async fn initialize_app_context(
+    output_dir: PathType,
+) -> (AppContext, tokio::sync::mpsc::UnboundedReceiver<ProjectInfo>) {
+    let usage_map: UsageMap = LockWithTimeout::new(HashMap::new());
+    let (metrics_tx, mut metrics_rx) = broadcast::channel::<LiveMetrics>(2048);
+    let (project_tx, project_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let usage_map_clone = usage_map.clone();
+    tokio::spawn(async move {
+        while let Ok(metric) = metrics_rx.recv().await {
+            let _ = update_metrics(metric, &usage_map_clone).await;
+        }
+    });
+
+    spawn_flush_task(usage_map.clone(), output_dir).await;
+
+    let context = AppContext {
+        usage_map,
+        metrics_tx,
+        project_tx,
+    };
+
+    (context, project_rx)
 }

@@ -19,18 +19,24 @@
 //!   `AppStatus` data locally.
 //! - **register_app**: Registers an application with a remote aggregator if configured.
 
+use chrono::Utc;
 use colored::Colorize;
-use dusa_collection_utils::errors::ErrorArrayItem;
 use dusa_collection_utils::log;
 use dusa_collection_utils::logger::LogLevel;
+use dusa_collection_utils::types::pathtype::PathType;
 use dusa_collection_utils::types::stringy::Stringy;
+use dusa_collection_utils::{errors::ErrorArrayItem, types::rwarc::LockWithTimeout};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use std::fs::create_dir_all;
+use std::time::Duration;
 use std::{
+    collections::HashMap,
     fmt,
     fs::{File, OpenOptions},
     io::{Read, Write},
 };
+use tokio::time::interval;
 
 use crate::config_bundle::ApplicationConfig;
 use crate::encryption::{simple_decrypt, simple_encrypt};
@@ -154,6 +160,15 @@ pub struct NetworkUsage {
     pub tx_bytes: u64,
 }
 
+impl NetworkUsage {
+    pub fn set(&mut self, other: &Self) {
+        // self.rx_bytes += other.rx_bytes;
+        // self.tx_bytes += other.tx_bytes;
+        self.rx_bytes = other.rx_bytes;
+        self.tx_bytes = other.tx_bytes;
+    }
+}
+
 /// Contains runtime metrics for an application, such as CPU and memory usage.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metrics {
@@ -163,6 +178,19 @@ pub struct Metrics {
     pub memory_usage: f32,
     /// An optional field for additional metrics or notes.
     pub other: Option<NetworkUsage>,
+}
+
+impl Metrics {
+    pub fn set(&mut self, other: &Self) {
+        self.cpu_usage = other.cpu_usage;
+        self.memory_usage = other.memory_usage;
+
+        match (&mut self.other, &other.other) {
+            (Some(existing), Some(new)) => existing.set(new),
+            (None, Some(new)) => self.other = Some(new.clone()),
+            _ => {} // Either both None, or only other is None — do nothing
+        }
+    }
 }
 
 impl fmt::Display for Metrics {
@@ -180,6 +208,167 @@ impl fmt::Display for Metrics {
             }
         )
     }
+}
+
+/// Represents a real-time resource usage report from a running instance.
+///
+/// This is typically collected every few seconds to minutes and used to
+/// update an in-memory accumulator which is later persisted for billing.
+///
+/// ### Example:
+/// ```rust
+/// LiveMetrics {
+///     runner_id: "abc123".into(),
+///     instance_id: "xyz456".into(),
+///     cpu_percent: 12.5,
+///     memory_mb: 256.0,
+///     rx_bytes: 15000,
+///     tx_bytes: 5000,
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveMetrics {
+    pub runner_id: Stringy,
+    pub instance_id: Stringy,
+    pub cpu_percent: f32,
+    pub memory_mb: f32,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+/// A single aggregated usage record.
+///
+/// This structure is persisted to disk at regular intervals, containing
+/// the summarized data of all metrics observed in that interval.
+///
+/// ### Fields:
+/// - `timestamp_epoch`: The UNIX timestamp at which the aggregation occurred.
+/// - `total_*`: Cumulative totals over the aggregation period.
+/// - `peak_*`: Highest observed value during the period.
+/// - `sample_count`: Number of metric samples aggregated.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageRecord {
+    pub timestamp_epoch: i64,
+    pub runner_id: Stringy,
+    pub instance_id: Stringy,
+    pub total_cpu: f32,
+    pub peak_cpu: f32,
+    pub total_memory: f32,
+    pub peak_memory: f32,
+    pub total_rx: u64,
+    pub total_tx: u64,
+    pub sample_count: u64,
+}
+
+/// Accumulator that aggregates usage statistics over a time window.
+///
+/// This is stored in memory and updated every time a new `LiveMetrics` is received.
+#[derive(Debug, Default)]
+pub struct UsageAccumulator {
+    pub total_cpu: f32,
+    pub peak_cpu: f32,
+    pub total_memory: f32,
+    pub peak_memory: f32,
+    pub total_rx: u64,
+    pub total_tx: u64,
+    pub last_rx: u64,
+    pub last_tx: u64,
+    pub sample_count: u64,
+}
+
+/// Key for mapping usage data per instance.
+/// Tuple of (runner_id, instance_id).
+pub type InstanceKey = (Stringy, Stringy);
+
+/// Thread-safe map of usage accumulators.
+/// Wrapped in a LockWithTimeout for safe concurrent access.
+pub type UsageMap = LockWithTimeout<HashMap<InstanceKey, UsageAccumulator>>;
+
+/// Updates the accumulator with new live metrics.
+///
+/// This function is intended to be called every time an instance
+/// reports its current resource usage.
+///
+/// It handles delta calculations for network traffic and peak tracking
+/// for CPU and memory.
+///
+/// Returns an error if the lock on the usage map could not be acquired.
+pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(), ErrorArrayItem> {
+    let mut map = usage_map.try_write().await?;
+    let key = (live.runner_id.clone(), live.instance_id.clone());
+    let entry = map.entry(key).or_default();
+
+    // CPU & RAM
+    entry.total_cpu += live.cpu_percent;
+    entry.total_memory += live.memory_mb;
+    entry.peak_cpu = entry.peak_cpu.max(live.cpu_percent);
+    entry.peak_memory = entry.peak_memory.max(live.memory_mb);
+    entry.sample_count += 1;
+
+    // Network deltas
+    let rx_delta = live.rx_bytes.saturating_sub(entry.last_rx);
+    let tx_delta = live.tx_bytes.saturating_sub(entry.last_tx);
+
+    if live.rx_bytes < entry.last_rx || live.tx_bytes < entry.last_tx {
+        // Instance likely restarted
+        entry.last_rx = 0;
+        entry.last_tx = 0;
+    }
+
+    entry.total_rx += rx_delta;
+    entry.total_tx += tx_delta;
+    entry.last_rx = live.rx_bytes;
+    entry.last_tx = live.tx_bytes;
+    Ok(())
+}
+
+/// Spawns a background task that flushes all current usage accumulators to disk.
+///
+/// This function is meant to be called once at startup. It sets up a background task
+/// that runs every 5 minutes, serializing the accumulated usage data into JSONL files.
+/// Each day's data is written into a separate file (e.g., `usage-2025-04-16.jsonl`).
+///
+/// Logs an error if the usage map cannot be written at flush time.
+pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
+    create_dir_all(&output_dir).unwrap();
+    tokio::spawn(async move {
+        let mut tick = interval(Duration::from_secs(300)); // every 5 min
+        loop {
+            tick.tick().await;
+
+            let mut map = match usage_map.try_write().await {
+                Ok(val) => val,
+                Err(err) => {
+                    log!(LogLevel::Error, "Failed to access the usage map: {}", err);
+                    continue;
+                }
+            };
+
+            let now = Utc::now();
+            let epoch = now.timestamp();
+            for ((runner_id, instance_id), acc) in map.drain() {
+                let record = UsageRecord {
+                    timestamp_epoch: epoch,
+                    runner_id,
+                    instance_id,
+                    total_cpu: acc.total_cpu,
+                    peak_cpu: acc.peak_cpu,
+                    total_memory: acc.total_memory,
+                    peak_memory: acc.peak_memory,
+                    total_rx: acc.total_rx,
+                    total_tx: acc.total_tx,
+                    sample_count: acc.sample_count,
+                };
+
+                let filename = output_dir.join(format!("usage-{}.jsonl", now.format("%Y-%m-%d")));
+                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(filename) {
+                    if let Ok(line) = serde_json::to_string(&record) {
+                        let _ = writeln!(file, "{}", line);
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// Represents a snapshot of an application’s state, including status, version, metrics, etc.

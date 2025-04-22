@@ -28,9 +28,8 @@ use dusa_collection_utils::types::stringy::Stringy;
 use dusa_collection_utils::{errors::ErrorArrayItem, types::rwarc::LockWithTimeout};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
-use tokio::sync::broadcast;
-use tokio::sync::mpsc::UnboundedSender;
 use std::fs::create_dir_all;
+use std::io::BufRead;
 use std::time::Duration;
 use std::{
     collections::HashMap,
@@ -38,6 +37,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
 };
+use tokio::sync::broadcast;
 use tokio::time::interval;
 
 use crate::config_bundle::ApplicationConfig;
@@ -292,8 +292,33 @@ pub struct BilledUsageSummary {
     pub total_samples: u64,
 }
 
+pub fn load_usage_records_from_dir(dir: &PathType) -> Result<Vec<UsageRecord>, std::io::Error> {
+    let mut all_records = Vec::new();
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.extension().map(|ext| ext == "jsonl").unwrap_or(false) {
+            let file = std::fs::File::open(&path)?;
+            let reader = std::io::BufReader::new(file);
+
+            for line_result in reader.lines() {
+                if let Ok(line) = line_result {
+                    if let Ok(record) = serde_json::from_str::<UsageRecord>(&line) {
+                        all_records.push(record);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(all_records)
+}
+
 pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
     if records.is_empty() {
+        log!(LogLevel::Warn, "No records given");
         return None;
     }
 
@@ -335,7 +360,6 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
     })
 }
 
-
 /// Key for mapping usage data per instance.
 /// Tuple of (runner_id, instance_id).
 pub type InstanceKey = (Stringy, Stringy);
@@ -349,7 +373,7 @@ pub type UsageMap = LockWithTimeout<HashMap<InstanceKey, UsageAccumulator>>;
 pub struct AppContext {
     pub usage_map: UsageMap,
     pub metrics_tx: broadcast::Sender<LiveMetrics>,
-    pub project_tx: UnboundedSender<ProjectInfo>,
+    pub project_tx: broadcast::Sender<ProjectInfo>,
 }
 
 /// Updates the accumulator with new live metrics.
@@ -400,7 +424,8 @@ pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(
 pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
     create_dir_all(&output_dir).unwrap();
     tokio::spawn(async move {
-        let mut tick = interval(Duration::from_secs(300)); // every 5 min
+        let mut tick = interval(Duration::from_secs(30)); // every 5 min
+    // let mut tick = interval(Duration::from_secs(300)); // every 5 min
         loop {
             tick.tick().await;
 
@@ -431,8 +456,21 @@ pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
                 let filename = output_dir.join(format!("usage-{}.jsonl", now.format("%Y-%m-%d")));
                 if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(filename) {
                     if let Ok(line) = serde_json::to_string(&record) {
-                        let _ = writeln!(file, "{}", line);
+                        if let Err(err) = writeln!(file, "{}", line) {
+                            log!(
+                                LogLevel::Error,
+                                "Error flushing metrics data: {}",
+                                err.to_string()
+                            );
+                            continue;
+                        };
+                    } else {
+                        log!(LogLevel::Error, "Error serializing json data");
+                        continue;
                     }
+                } else {
+                    log!(LogLevel::Error, "Error Opening File");
+                    continue;
                 }
             }
         }
@@ -469,11 +507,16 @@ pub async fn flush_metrics_to_disk(
         let filename = output_dir.join(format!("usage-{}.jsonl", now.format("%Y-%m-%d")));
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(filename) {
             if let Ok(line) = serde_json::to_string(&record) {
-                let _ = writeln!(file, "{}", line);
+                writeln!(file, "{}", line).map_err(ErrorArrayItem::from)?;
+            } else {
+                log!(LogLevel::Error, "Error serializing json data");
+                continue;
             }
+        } else {
+            log!(LogLevel::Error, "Error Opening File");
+            continue;
         }
     }
-
     Ok(())
 }
 
@@ -792,10 +835,14 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
 /// Returns an `AppContext` to be passed throughout the application.
 pub async fn initialize_app_context(
     output_dir: PathType,
-) -> (AppContext, tokio::sync::mpsc::UnboundedReceiver<ProjectInfo>) {
+) -> (
+    AppContext,
+    broadcast::Receiver<ProjectInfo>,
+    // tokio::sync::mpsc::UnboundedReceiver<ProjectInfo>,
+) {
     let usage_map: UsageMap = LockWithTimeout::new(HashMap::new());
     let (metrics_tx, mut metrics_rx) = broadcast::channel::<LiveMetrics>(2048);
-    let (project_tx, project_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (project_tx, project_rx) = broadcast::channel::<ProjectInfo>(2048);
 
     let usage_map_clone = usage_map.clone();
     tokio::spawn(async move {

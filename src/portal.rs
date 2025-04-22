@@ -1,11 +1,10 @@
 use colored::Colorize;
 use core::fmt;
 use dusa_collection_utils::{
-    functions::{create_hash, truncate},
-    types::stringy::Stringy,
-    version::SoftwareVersion,
+    functions::{create_hash, truncate}, log, logger::LogLevel, types::stringy::Stringy, version::SoftwareVersion
 };
 use serde::{Deserialize, Serialize};
+use lz4::block::compress;
 
 use crate::aggregator::Metrics;
 #[allow(unused_imports)] // for documents
@@ -35,10 +34,19 @@ pub struct ProjectInfo {
 }
 
 impl ProjectInfo {
-    pub fn get_stringy(&self) -> Stringy {
-        let data = format!("{}-{}", self.identity.id, self.project_id);
-        let hash = create_hash(data);
-        let result = truncate(&*hash, 20).to_owned();
+    pub fn get_id(&self) -> Stringy {
+        let data = format!("{}-{}", self.identity.id, self.project_data.get_id());
+        let bytes = data.into_bytes();
+        let compressed = match compress(&bytes, None, false) {
+            Ok(data) => data,
+            Err(err) => {
+                log!(LogLevel::Warn, "Error compressing id: {}", err.to_string());
+                let fallback = b"none";
+                fallback.to_vec()
+            },
+        };
+        let encoded = base64::encode(&compressed);
+        let result = truncate(&encoded, 100).to_owned();
         return result;
     }
 }

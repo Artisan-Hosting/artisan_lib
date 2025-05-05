@@ -569,3 +569,9 @@ impl fmt::Display for ManagerData {
 pub struct BillingParams {
     pub instances: u64,
 }
+
+impl BillingParams {
+    pub fn new(data: u64) -> Self {
+        Self { instances: data }
+    }
+}

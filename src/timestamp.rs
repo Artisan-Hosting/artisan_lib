@@ -1,7 +1,7 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use chrono::{Local, NaiveDateTime, TimeZone, Utc};
+use chrono::{Datelike, Local, NaiveDate};
+use chrono::{NaiveDateTime, TimeZone, Utc};
 use dusa_collection_utils::{log, logger::LogLevel, types::stringy::Stringy};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Retrieves the current Unix timestamp in seconds.
 pub fn current_timestamp() -> u64 {
@@ -70,4 +70,22 @@ pub fn time_to_unix_timestamp(datetime: &str) -> Option<u64> {
             None
         }
     }
+}
+
+pub fn days_in_current_month() -> f64 {
+    let today = Local::now().date_naive();
+    let (year, month) = (today.year(), today.month());
+
+    // Move to the first day of the next month
+    let next_month = if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)
+    }
+    .unwrap();
+
+    // Subtract one day to get the last day of the current month
+    let last_day_of_month = next_month;
+
+    last_day_of_month.day() as f64 - 1.00 as f64
 }

@@ -34,6 +34,7 @@ pub struct ProjectInfo {
 }
 
 impl ProjectInfo {
+    #[allow(deprecated)]
     pub fn get_id(&self) -> Stringy {
         let data = format!("{}-{}", self.identity.id, self.project_data.get_id());
         let bytes = data.into_bytes();
@@ -558,4 +559,13 @@ impl fmt::Display for ManagerData {
             self.warning.to_string().bold().yellow()
         )
     }
+}
+
+// ===============================================================================
+// Billing Endpoint structs
+// ===============================================================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BillingParams {
+    pub instances: u64,
 }

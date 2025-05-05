@@ -282,11 +282,13 @@ impl fmt::Display for BillingCosts {
              - CPU Cost: ${:.2}\n\
              - RAM Cost: ${:.2}\n\
              - Bandwidth Cost: ${:.2}\n\
+             - Instance Cost: ${:.2}\n\
              - Total Cost: ${:.2}\n\
              - Instances: {}",
             self.cpu_cost,
             self.ram_cost,
             self.bandwidth_cost,
+            (self.instances * 5),
             self.total_cost,
             self.instances
         )

@@ -108,7 +108,7 @@ pub struct ResourceMonitor {
     /// The PID of the process being monitored.
     pub pid: i32,
     /// Most recently measured RAM usage, in megabytes (MB).
-    pub ram: f32,
+    pub ram: f64,
     /// Most recently measured CPU usage, in "jiffies per second" form.
     /// (Can be interpreted as a CPU fraction if scaled properly.)
     pub cpu: f32,
@@ -155,7 +155,7 @@ impl ResourceMonitor {
     ///
     /// # Errors
     /// - Returns [`ErrorArrayItem`] if the process stat cannot be read.
-    fn get_usage(process: &Process) -> Result<(f32, f32), ErrorArrayItem> {
+    fn get_usage(process: &Process) -> Result<(f32, f64), ErrorArrayItem> {
         let stat = process.stat().map_err(|_| {
             ErrorArrayItem::new(Errors::GeneralError, "Failed to retrieve process stat")
         })?;
@@ -168,7 +168,7 @@ impl ResourceMonitor {
         // Convert the resident set size (RSS) to MB
         let memory = process
             .statm()
-            .map(|statm| (statm.resident as f32 * 4096.0) / (1024.0 * 1024.0))
+            .map(|statm| (statm.resident as f64 * 4096.0) / (1024.0 * 1024.0))
             .unwrap_or(0.0);
 
         let cpu_usage = Self::calculate_cpu_usage(&stat)?;
@@ -282,7 +282,7 @@ impl ResourceMonitor {
     ///
     /// # Errors
     /// - Returns an [`ErrorArrayItem`] if any process info cannot be retrieved.
-    pub fn aggregate_tree_usage(&self) -> Result<(f32, f32), ErrorArrayItem> {
+    pub fn aggregate_tree_usage(&self) -> Result<(f32, f64), ErrorArrayItem> {
         let mut visited = HashSet::new();
 
         let mut all_pids = Self::collect_all_pids(self.pid, &mut visited)?;
@@ -294,12 +294,11 @@ impl ResourceMonitor {
 
         let (total_cpu, total_ram) = Self::collect_usage(all_pids)?;
 
-        let average_cpu = if visited.is_empty() {
-            0.8827
-        } else {
-            total_cpu / visited.len() as f32
+        let average_cpu = match visited.is_empty() {
+            true => total_cpu / visited.len() as f32,
+            false => 0.0,
         };
-
+        
         Ok((average_cpu, total_ram))
     }
 
@@ -309,9 +308,9 @@ impl ResourceMonitor {
     /// `(sum_cpu_usage, sum_ram_usage)`.
     ///
     /// Logs warnings for processes that cannot be read or if `Process::new(pid)` fails.
-    fn collect_usage(pids: Vec<i32>) -> Result<(f32, f32), ErrorArrayItem> {
-        let mut total_cpu = 0.0;
-        let mut total_ram = 0.0;
+    fn collect_usage(pids: Vec<i32>) -> Result<(f32, f64), ErrorArrayItem> {
+        let mut total_cpu: f32 = 0.0;
+        let mut total_ram: f64 = 0.0;
 
         for pid in pids {
             if let Ok(process) = Process::new(pid) {

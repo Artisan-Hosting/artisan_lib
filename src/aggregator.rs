@@ -28,6 +28,7 @@ use dusa_collection_utils::types::stringy::Stringy;
 use dusa_collection_utils::{errors::ErrorArrayItem, types::rwarc::LockWithTimeout};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use std::collections::HashSet;
 use std::fs::create_dir_all;
 use std::io::BufRead;
 use std::time::Duration;
@@ -177,7 +178,7 @@ pub struct Metrics {
     /// CPU usage in percent.
     pub cpu_usage: f32,
     /// Memory usage in MB.
-    pub memory_usage: f32,
+    pub memory_usage: f64,
     /// An optional field for additional metrics or notes.
     pub other: Option<NetworkUsage>,
 }
@@ -233,8 +234,8 @@ impl fmt::Display for Metrics {
 pub struct LiveMetrics {
     pub runner_id: Stringy,
     pub instance_id: Stringy,
-    pub cpu_percent: f32,
-    pub memory_mb: f32,
+    pub cpu_usage: f32,
+    pub memory_mb: f64,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
 }
@@ -256,11 +257,40 @@ pub struct UsageRecord {
     pub instance_id: Stringy,
     pub total_cpu: f32,
     pub peak_cpu: f32,
-    pub total_memory: f32,
-    pub peak_memory: f32,
+    pub total_memory: f64,
+    pub peak_memory: f64,
     pub total_rx: u64,
     pub total_tx: u64,
     pub sample_count: u64,
+}
+
+/// The result of a cost calculation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillingCosts {
+    pub cpu_cost: f64,
+    pub ram_cost: f64,
+    pub bandwidth_cost: f64,
+    pub total_cost: f64,
+    pub instances: u64
+}
+
+impl fmt::Display for BillingCosts {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "BillingCosts:\n\
+             - CPU Cost: ${:.2}\n\
+             - RAM Cost: ${:.2}\n\
+             - Bandwidth Cost: ${:.2}\n\
+             - Total Cost: ${:.2}\n\
+             - Instances: {}",
+            self.cpu_cost,
+            self.ram_cost,
+            self.bandwidth_cost,
+            self.total_cost,
+            self.instances
+        )
+    }
 }
 
 /// Accumulator that aggregates usage statistics over a time window.
@@ -270,8 +300,8 @@ pub struct UsageRecord {
 pub struct UsageAccumulator {
     pub total_cpu: f32,
     pub peak_cpu: f32,
-    pub total_memory: f32,
-    pub peak_memory: f32,
+    pub total_memory: f64,
+    pub peak_memory: f64,
     pub total_rx: u64,
     pub total_tx: u64,
     pub last_rx: u64,
@@ -285,11 +315,12 @@ pub struct BilledUsageSummary {
     pub instance_id: Stringy,
     pub total_cpu: f32,
     pub peak_cpu: f32,
-    pub avg_memory: f32,
-    pub peak_memory: f32,
+    pub avg_memory: f64,
+    pub peak_memory: f64,
     pub total_rx: u64,
     pub total_tx: u64,
     pub total_samples: u64,
+    pub instances: u64,
 }
 
 pub fn load_usage_records_from_dir(dir: &PathType) -> Result<Vec<UsageRecord>, std::io::Error> {
@@ -322,41 +353,63 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
         return None;
     }
 
-    let mut total_cpu: f32 = 0.0;
+    let mut total_cpu_points: f32 = 0.0;
     let mut peak_cpu: f32 = 0.0;
-    let mut total_memory: f32 = 0.0;
-    let mut peak_memory: f32 = 0.0;
-    let mut total_rx: u64 = 0;
-    let mut total_tx: u64 = 0;
-    let mut total_samples: u64 = 0;
+    let mut total_memory_sum: f64 = 0.0;
+    let mut peak_memory: f64 = 0.0;
+    let mut total_sample_count: u64 = 0;
+
+    let mut min_rx: u64 = u64::MAX;
+    let mut max_rx: u64 = 0;
+    let mut min_tx: u64 = u64::MAX;
+    let mut max_tx: u64 = 0;
 
     let runner_id = records[0].runner_id.clone();
     let instance_id = records[0].instance_id.clone();
+    let mut instance_seen: HashSet<Stringy> = HashSet::new();
 
     for r in records {
-        total_cpu += r.total_cpu;
+        total_cpu_points += r.total_cpu;
         peak_cpu = peak_cpu.max(r.peak_cpu);
-        total_memory += r.total_memory;
+
+        total_memory_sum += r.total_memory;
         peak_memory = peak_memory.max(r.peak_memory);
-        total_rx += r.total_rx;
-        total_tx += r.total_tx;
-        total_samples += r.sample_count;
+
+        total_sample_count += r.sample_count;
+
+        min_rx = min_rx.min(r.total_rx);
+        max_rx = max_rx.max(r.total_rx);
+        min_tx = min_tx.min(r.total_tx);
+        max_tx = max_tx.max(r.total_tx);
+
+        if !instance_seen.contains(&r.instance_id) {
+            instance_seen.insert(r.instance_id.clone());
+        }
     }
+
+    let avg_memory = if total_sample_count > 0 {
+        total_memory_sum / total_sample_count as f64
+    } else {
+        0.0
+    };
+
+    let total_rx = max_rx.saturating_sub(min_rx);
+    let total_tx = max_tx.saturating_sub(min_tx);
+
+    // Convert CPU% points → core-seconds → core-hours
+    let total_core_hours = total_cpu_points;
 
     Some(BilledUsageSummary {
         runner_id,
         instance_id,
-        total_cpu,
+        total_cpu: total_core_hours, // << total_cpu is now "core-hours"
         peak_cpu,
-        avg_memory: if total_samples > 0 {
-            total_memory / total_samples as f32
-        } else {
-            0.0
-        },
+        avg_memory,
         peak_memory,
         total_rx,
         total_tx,
-        total_samples,
+        total_samples: total_sample_count,
+        instances: instance_seen.len() as u64,
     })
 }
 
@@ -391,9 +444,9 @@ pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(
     let entry = map.entry(key).or_default();
 
     // CPU & RAM
-    entry.total_cpu += live.cpu_percent;
+    entry.total_cpu += live.cpu_usage;
     entry.total_memory += live.memory_mb;
-    entry.peak_cpu = entry.peak_cpu.max(live.cpu_percent);
+    entry.peak_cpu = entry.peak_cpu.max(live.cpu_usage);
     entry.peak_memory = entry.peak_memory.max(live.memory_mb);
     entry.sample_count += 1;
 
@@ -424,8 +477,8 @@ pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(
 pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
     create_dir_all(&output_dir).unwrap();
     tokio::spawn(async move {
-        let mut tick = interval(Duration::from_secs(30)); // every 5 min
-    // let mut tick = interval(Duration::from_secs(300)); // every 5 min
+        // let mut tick = interval(Duration::from_secs(30)); // every 5 min
+    let mut tick = interval(Duration::from_secs(300)); // every 5 min
         loop {
             tick.tick().await;
 
@@ -847,7 +900,9 @@ pub async fn initialize_app_context(
     let usage_map_clone = usage_map.clone();
     tokio::spawn(async move {
         while let Ok(metric) = metrics_rx.recv().await {
-            let _ = update_metrics(metric, &usage_map_clone).await;
+            if let Err(err) = update_metrics(metric, &usage_map_clone).await{
+                log!(LogLevel::Warn, "Error monitoring usage data: {}", err.err_mesg)
+            }
         }
     });
 

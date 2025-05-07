@@ -501,7 +501,7 @@ pub struct CommandStatusResponse {
 
 /// Represents a single log entry (for nodes or runners),
 /// containing a timestamp and a message describing an event.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LogEntry {
     /// The time at which this log entry was recorded.
     pub timestamp: String,

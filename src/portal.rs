@@ -84,7 +84,7 @@ pub struct ApiResponse<T> {
 ///
 /// These codes can be matched in client logic or user interfaces to provide more specific
 /// handling or localized error messages.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ErrorCode {
     /// Indicates that the requested node resource was not found on the server.
     NodeNotFound,
@@ -112,7 +112,7 @@ pub enum ErrorCode {
 ///
 /// This includes a machine-readable code (`code`), a human-readable description (`message`),
 /// and an optional `details` object for storing extra contextual information.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ErrorInfo {
     /// A machine-readable error code, typically referencing an entry in [`ErrorCode`].
     pub code: ErrorCode,
@@ -501,7 +501,7 @@ pub struct CommandStatusResponse {
 
 /// Represents a single log entry (for nodes or runners),
 /// containing a timestamp and a message describing an event.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LogEntry {
     /// The time at which this log entry was recorded.
     pub timestamp: String,
@@ -516,7 +516,7 @@ pub struct LogEntry {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NodeLogs {
     /// The ID of the node these logs pertain to.
-    #[serde(rename = "nodeId")]
+    // #[serde(rename = "nodeId")]
     pub node_id: String,
 
     /// A list of log entries recorded by this node.
@@ -529,11 +529,21 @@ pub struct NodeLogs {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RunnerLogResponse {
     /// The ID of the runner these logs pertain to.
-    #[serde(rename = "runnerId")]
+    // #[serde(rename = "runnerId")]
     pub runner_id: String,
 
     /// A list of log entries recorded by this runner.
     pub logs: Vec<LogEntry>,
+}
+
+/// The response payload for an endpoint returning instance-level logs.
+///
+/// This includes the runner ID for context, plus a collection of [`LogEntry`] objects.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct InstanceLogResponse {
+    pub runner_id: String,
+    pub instance_id: String,
+    pub lines: Vec<LogEntry>,
 }
 
 // =============================================================================

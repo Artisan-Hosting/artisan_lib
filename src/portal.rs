@@ -1,8 +1,11 @@
 use colored::Colorize;
 use core::fmt;
 use dusa_collection_utils::{
-    functions::{create_hash, truncate}, log, logger::LogLevel, types::stringy::Stringy, version::SoftwareVersion
+ log, core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion
 };
+#[cfg(unix)]
+use dusa_collection_utils::platform::functions::{create_hash, truncate};
+
 use serde::{Deserialize, Serialize};
 use lz4::block::compress;
 
@@ -33,6 +36,7 @@ pub struct ProjectInfo {
     pub project_data: AppStatus,
 }
 
+#[cfg(unix)]
 impl ProjectInfo {
     #[allow(deprecated)]
     pub fn get_id(&self) -> Stringy {
@@ -160,6 +164,7 @@ pub struct NodeInfo {
     pub last_updated: Stringy,
 }
 
+#[cfg(unix)]
 impl NodeInfo {
     /// Generates a shortened hash-based string derived from the node’s IP address
     /// and internal identity.
@@ -199,6 +204,7 @@ pub struct NodeDetails {
     pub manager_data: ManagerData,
 }
 
+#[cfg(unix)]
 impl NodeDetails {
     /// Generates a shortened hash-based string derived from the manager’s address
     /// and the node’s internal identity.
@@ -247,6 +253,7 @@ pub struct ManagerData {
     pub uptime: u64,
 }
 
+#[cfg(unix)]
 impl ManagerData {
     /// Generates a shortened hash-based string derived from the manager’s IP address
     /// and internal identity.

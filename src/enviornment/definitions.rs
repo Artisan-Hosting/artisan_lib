@@ -1,10 +1,8 @@
 use colored::Colorize;
 use core::fmt;
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
+    core::{errors::{ErrorArrayItem, Errors}, logger::LogLevel, types::stringy::Stringy},
     log,
-    logger::LogLevel,
-    types::stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
 

@@ -22,10 +22,10 @@
 use chrono::Utc;
 use colored::Colorize;
 use dusa_collection_utils::log;
-use dusa_collection_utils::logger::LogLevel;
-use dusa_collection_utils::types::pathtype::PathType;
-use dusa_collection_utils::types::stringy::Stringy;
-use dusa_collection_utils::{errors::ErrorArrayItem, types::rwarc::LockWithTimeout};
+use dusa_collection_utils::core::logger::LogLevel;
+use dusa_collection_utils::core::types::pathtype::PathType;
+use dusa_collection_utils::core::types::stringy::Stringy;
+use dusa_collection_utils::{core::errors::ErrorArrayItem, core::types::rwarc::LockWithTimeout};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
 use std::collections::HashSet;

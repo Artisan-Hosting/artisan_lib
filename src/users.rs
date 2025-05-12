@@ -4,8 +4,8 @@ use std::{
 };
 
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
-    types::pathtype::PathType,
+    core::errors::{ErrorArrayItem, Errors},
+    core::types::pathtype::PathType,
 };
 use users::{Groups, Users, UsersCache};
 use walkdir::WalkDir;

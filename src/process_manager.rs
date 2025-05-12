@@ -1,9 +1,9 @@
-use dusa_collection_utils::errors::{ErrorArrayItem, Errors};
+use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors};
 use dusa_collection_utils::log;
-use dusa_collection_utils::logger::LogLevel;
-use dusa_collection_utils::types::pathtype::PathType;
-use dusa_collection_utils::types::rb::RollingBuffer;
-use dusa_collection_utils::types::rwarc::LockWithTimeout;
+use dusa_collection_utils::core::logger::LogLevel;
+use dusa_collection_utils::core::types::pathtype::PathType;
+use dusa_collection_utils::core::types::rb::RollingBuffer;
+use dusa_collection_utils::core::types::rwarc::LockWithTimeout;
 use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
@@ -18,7 +18,6 @@ use tokio::task::JoinHandle;
 use crate::aggregator::Metrics;
 use crate::resource_monitor::ResourceMonitorLock;
 use crate::state_persistence::{log_error, update_state, AppState};
-
 /// A wrapper around [`LockWithTimeout<Child>`] that synchronizes access to a
 /// [`tokio::process::Child`]. This allows safe concurrent reads/writes or attempts to kill
 /// the child within specified timeouts.
@@ -453,7 +452,7 @@ impl ChildLock {
             Some(xid) => xid,
             None => {
                 return Err(ErrorArrayItem::new(
-                    dusa_collection_utils::errors::Errors::InputOutput,
+                    dusa_collection_utils::core::errors::Errors::InputOutput,
                     "No PID found in child process".to_owned(),
                 ))
             }
@@ -552,7 +551,7 @@ pub async fn spawn_simple_process(
                 e.to_string()
             );
             let error_item: ErrorArrayItem = ErrorArrayItem::new(
-                dusa_collection_utils::errors::Errors::InputOutput,
+                dusa_collection_utils::core::errors::Errors::InputOutput,
                 e.to_string(),
             );
             log_error(state, error_item, state_path).await;

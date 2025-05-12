@@ -1,10 +1,9 @@
 use colored::Colorize;
-use dusa_collection_utils::errors::Errors;
-use dusa_collection_utils::functions::current_timestamp;
-use dusa_collection_utils::logger::{set_log_level, LogLevel};
-use dusa_collection_utils::types::pathtype::PathType;
-use dusa_collection_utils::types::stringy::Stringy;
-use dusa_collection_utils::version::SoftwareVersion;
+use dusa_collection_utils::core::errors::Errors;
+use dusa_collection_utils::core::logger::{set_log_level, LogLevel};
+use dusa_collection_utils::core::types::pathtype::PathType;
+use dusa_collection_utils::core::types::stringy::Stringy;
+use dusa_collection_utils::core::version::SoftwareVersion;
 use serde::{Deserialize, Serialize};
 use std::{fmt, fs};
 
@@ -12,8 +11,8 @@ use crate::aggregator::{Metrics, Status};
 use crate::config::AppConfig;
 use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::git_actions::GitServer;
-use crate::timestamp::format_unix_timestamp;
-use dusa_collection_utils::errors::ErrorArrayItem;
+use crate::timestamp::{current_timestamp, format_unix_timestamp};
+use dusa_collection_utils::core::errors::ErrorArrayItem;
 use dusa_collection_utils::log;
 
 /// Represents the application’s overall state, including:

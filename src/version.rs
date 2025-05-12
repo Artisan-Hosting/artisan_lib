@@ -1,6 +1,6 @@
 use dusa_collection_utils::{
-    types::stringy::Stringy,
-    version::{Version, VersionCode},
+    core::types::stringy::Stringy,
+    core::version::{Version, VersionCode},
 };
 
 use crate::RELEASEINFO;

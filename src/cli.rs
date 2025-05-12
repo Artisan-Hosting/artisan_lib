@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use dusa_collection_utils::{errors::ErrorArrayItem, types::stringy::Stringy};
+use dusa_collection_utils::{core::errors::ErrorArrayItem, core::types::stringy::Stringy};
 
 use crate::encryption::simple_encrypt;
 

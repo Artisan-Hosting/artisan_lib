@@ -1,13 +1,15 @@
 use colored::Colorize;
 use dusa_collection_utils::{
-    errors::{
+    core::errors::{
         ErrorArrayItem, Errors, OkWarning, UnifiedResult, WarningArray, WarningArrayItem, Warnings,
     },
     log,
-    logger::LogLevel,
-    types::stringy::Stringy,
+    core::logger::LogLevel,
+    core::types::stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
+
+#[cfg(target_os = "linux")]
 use simple_comms::{
     network::send_receive::send_message,
     protocol::{flags::Flags, proto::Proto, status::ProtocolStatus},
@@ -46,6 +48,7 @@ impl fmt::Display for Email {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Email {
     /// Creates a new `Email` instance with the provided subject and body.
     ///

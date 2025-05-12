@@ -1,9 +1,8 @@
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
-    functions::{create_hash, truncate},
+    core::errors::{ErrorArrayItem, Errors},
     log,
-    logger::LogLevel,
-    types::{pathtype::PathType, stringy::Stringy},
+    core::logger::LogLevel,
+    core::types::{pathtype::PathType, stringy::Stringy},
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -14,6 +13,9 @@ use std::{
 use tokio::time::sleep;
 
 use crate::{encryption::simple_encrypt, timestamp::current_timestamp};
+
+#[cfg(target_os = "linux")]
+use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
 /// The file path to store the `Identifier` object on disk.
 pub const IDENTITYPATHSTR: &str = "/opt/artisan/identity";
@@ -50,6 +52,7 @@ pub struct SnowflakeIDGenerator {
     last_timestamp: u64,
 }
 
+#[cfg(target_os = "linux")]
 impl SnowflakeIDGenerator {
     /// Creates a new `SnowflakeIDGenerator` with the provided datacenter and machine IDs.
     ///
@@ -173,6 +176,7 @@ pub struct Identifier {
     _signature: Stringy,
 }
 
+#[cfg(target_os = "linux")]
 impl Identifier {
     /// Generates a truncated hash (`Stringy`) from the given `id`.
     ///
@@ -339,7 +343,7 @@ impl Identifier {
     pub async fn to_encrypted_json(&self) -> Result<Stringy, ErrorArrayItem> {
         let json_representation = self.to_json().map_err(|e| {
             ErrorArrayItem::new(
-                dusa_collection_utils::errors::Errors::JsonCreation,
+                dusa_collection_utils::core::errors::Errors::JsonCreation,
                 e.to_string(),
             )
         })?;

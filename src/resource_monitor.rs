@@ -1,8 +1,8 @@
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
+    core::errors::{ErrorArrayItem, Errors},
     log,
-    logger::LogLevel,
-    types::{rwarc::LockWithTimeout, stringy::Stringy},
+    core::logger::LogLevel,
+    core::types::{rwarc::LockWithTimeout, stringy::Stringy},
 };
 use gethostname::gethostname;
 use procfs::process::{all_processes, Process};

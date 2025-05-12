@@ -1,10 +1,10 @@
 use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
-use dusa_collection_utils::{log, logger::LogLevel, types::stringy::Stringy};
+use dusa_collection_utils::{log, core::logger::LogLevel, core::types::stringy::Stringy};
 use rand::Rng;
-use simple_comms::protocol::encryption::generate_key;
 use tokio::sync::Notify;
 
-use dusa_collection_utils::errors::{ErrorArrayItem, Errors, UnifiedResult};
+use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors, UnifiedResult};
+#[cfg(target_os = "linux")]
 use recs::{decrypt_raw, encrypt_raw, house_keeping, initialize};
 use std::{
     sync::{
@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::time::sleep;
 
+#[cfg(target_os = "linux")]
 lazy_static::lazy_static! {
 /// Indicates whether the legacy (RECS-based) encryption system has been initialized.
 static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -63,6 +64,7 @@ static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 ///  # });
 /// ```
 #[allow(deprecated)]
+#[cfg(target_os = "linux")]
 #[deprecated(
     since = "4.3.0",
     note = "Currently unstable. Use `simple_encrypt` if possible."
@@ -111,6 +113,7 @@ pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
 /// # });
 /// ```
 #[allow(deprecated)]
+#[cfg(target_os = "linux")]
 #[deprecated(
     since = "4.3.0",
     note = "Currently unstable. Use `simple_decrypt` if possible."
@@ -145,6 +148,7 @@ pub async fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     since = "4.3.0",
     note = "Currently unstable. Use `simple_encrypt` if possible."
 )]
+#[cfg(target_os = "linux")]
 pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     if let Err(err) = initialize_locker().await {
         return UnifiedResult::new(Err(err));
@@ -206,6 +210,7 @@ pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     since = "4.3.0",
     note = "Currently unstable. Use `simple_decrypt` if possible."
 )]
+#[cfg(target_os = "linux")]
 pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     if let Err(err) = initialize_locker().await {
         return UnifiedResult::new(Err(err));
@@ -268,6 +273,7 @@ pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
 ///
 /// # Returns
 /// `true` if locked (housekeeping is in progress), otherwise `false`.
+#[cfg(target_os = "linux")]
 async fn execution_locked() -> bool {
     let lock = cleaning_lock.load(Ordering::Acquire);
     if lock {
@@ -297,6 +303,7 @@ async fn execution_locked() -> bool {
 /// # Returns
 /// - `Ok(Vec<u8>)`: The operation’s successful output.
 /// - `Err(ErrorArrayItem)`: An error if the operation or housekeeping fails.
+#[cfg(target_os = "linux")]
 #[deprecated(
     since = "4.3.0",
     note = "Currently unstable. Use `simple_*` if possible."
@@ -318,6 +325,7 @@ where
 }
 
 /// Triggers RECS cleanup, notifying the `clean_loop` to proceed.
+#[cfg(target_os = "linux")]
 async fn call_clean() {
     cleaning_call.notify_one();
     log!(LogLevel::Trace, "Recs clean called");
@@ -325,6 +333,7 @@ async fn call_clean() {
 
 /// An asynchronous loop that waits for notifications to clean up RECS data.
 /// Once triggered, it acquires a lock, performs housekeeping, and releases the lock.
+#[cfg(target_os = "linux")]
 async fn clean_loop() -> Result<(), ErrorArrayItem> {
     cleaning_loop_initialized.store(true, Ordering::Release);
     loop {
@@ -349,6 +358,7 @@ async fn clean_loop() -> Result<(), ErrorArrayItem> {
 /// # Returns
 /// - `Ok(())` on successful initialization.
 /// - `Err(ErrorArrayItem)` if initialization fails.
+#[cfg(target_os = "linux")]
 async fn initialize_locker() -> Result<(), ErrorArrayItem> {
     match initialized.load(Ordering::Relaxed) {
         true => {
@@ -378,6 +388,14 @@ const NONCE_SIZE: usize = 12;
 
 /// The size (in bytes) of the AES-256 key (256 bits → 32 bytes).
 const KEY_SIZE: usize = 32;
+
+pub fn generate_key(buffer: &mut [u8]) {
+    let mut rng = rand::thread_rng(); // Create a random number generator
+    for byte in buffer.iter_mut() {
+        *byte = rng.gen(); // Fill each byte with random data
+    }
+}
+
 
 /// Encrypts the provided data using AES-256 GCM encryption.
 ///

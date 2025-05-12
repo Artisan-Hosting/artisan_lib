@@ -1,6 +1,6 @@
 // re-exporting dusa-utils
 pub use dusa_collection_utils;
-use dusa_collection_utils::version::VersionCode;
+use dusa_collection_utils::core::version::VersionCode;
 
 // This is a successor of the artisan_platform
 pub mod api;
@@ -14,14 +14,19 @@ pub mod enviornment;
 pub mod git_actions;
 pub mod historics;
 pub mod identity;
+#[cfg(target_os = "linux")]
 pub mod network;
 pub mod notifications;
 pub mod portal;
+#[cfg(target_os = "linux")]
 pub mod process_manager;
+#[cfg(target_os = "linux")]
 pub mod resource_monitor;
 pub mod state_persistence;
+#[cfg(target_os = "linux")]
 pub mod systemd;
 pub mod timestamp;
+#[cfg(target_os = "linux")]
 pub mod users;
 pub mod version;
 

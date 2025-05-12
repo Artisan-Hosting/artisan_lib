@@ -1,4 +1,4 @@
-use dusa_collection_utils::{errors::ErrorArrayItem, types::stringy::Stringy};
+use dusa_collection_utils::{core::errors::ErrorArrayItem, core::types::stringy::Stringy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

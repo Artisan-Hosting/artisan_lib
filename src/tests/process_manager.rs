@@ -8,9 +8,9 @@ mod tests {
     use crate::state_persistence::AppState;
     use crate::timestamp::current_timestamp;
 
-    use dusa_collection_utils::errors::Errors;
-    use dusa_collection_utils::types::pathtype::PathType;
-    use dusa_collection_utils::version::SoftwareVersion;
+    use dusa_collection_utils::core::errors::Errors;
+    use dusa_collection_utils::core::types::pathtype::PathType;
+    use dusa_collection_utils::core::version::SoftwareVersion;
     use nix::unistd::Pid;
     use std::path::PathBuf;
     use std::time::Duration;

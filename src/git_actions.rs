@@ -6,16 +6,19 @@ use std::pin::Pin;
 use std::process::Output;
 
 use colored::Colorize;
-use dusa_collection_utils::types::pathtype::PathType;
-use dusa_collection_utils::types::stringy::Stringy;
+use dusa_collection_utils::core::types::pathtype::PathType;
+use dusa_collection_utils::core::types::stringy::Stringy;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
-    functions::{create_hash, truncate},
+    core::errors::{ErrorArrayItem, Errors},
 };
+    
+#[cfg(unix)]
+use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
+    
 use crate::encryption::{simple_decrypt, simple_encrypt};
 // use crate::encryption::{decrypt_text, encrypt_text};
 
@@ -102,6 +105,7 @@ pub enum GitAction {
     },
 }
 
+#[cfg(unix)]
 impl GitCredentials {
     /// Creates a new instance of `GitCredentials` by reading and decrypting the credentials file.
     ///
@@ -330,6 +334,7 @@ impl GitAuth {
         }
     }
 
+    #[cfg(unix)]
     pub fn generate_id(&self) -> Stringy {
         truncate(
             &*create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
@@ -700,6 +705,7 @@ async fn execute_git_hash_command(args: &[&str]) -> Result<String, ErrorArrayIte
 /// # Returns
 ///
 /// Returns a `PathType` representing the project path.
+#[cfg(unix)]
 pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
     PathType::Content(format!("/var/www/ais/{}", generate_git_project_id(auth)))
 }
@@ -713,6 +719,7 @@ pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
 /// # Returns
 ///
 /// Returns a `Stringy` representing the truncated hash of the project ID.
+#[cfg(unix)]
 pub fn generate_git_project_id(auth: &GitAuth) -> Stringy {
     let hash_input = format!("{}-{}-{}", auth.branch, auth.repo, auth.user);
     let hash = create_hash(hash_input);

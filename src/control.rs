@@ -1,5 +1,5 @@
 use dusa_collection_utils::log;
-use dusa_collection_utils::logger::LogLevel;
+use dusa_collection_utils::core::logger::LogLevel;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::Duration;
 use tokio::{sync::Notify, time::timeout};

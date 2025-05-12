@@ -7,13 +7,13 @@ use dusa_collection_utils::types::rwarc::LockWithTimeout;
 use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
+use std::pin::Pin;
 use std::process::Stdio;
 use std::time::Duration;
 use std::{io, thread};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
 
 use crate::aggregator::Metrics;
 use crate::resource_monitor::ResourceMonitorLock;
@@ -339,40 +339,40 @@ impl SupervisedChild {
     /// - Undocumentd.
     /// - Use [`terminate_monitor`] to stop the task.
     pub async fn monitor_stdx(&mut self) {
-        if self.monitor_std.is_none() {
-            let mut sup_child = self.clone().await;
-            let std_handle = tokio::spawn(async move {
-                loop {
-                    if let Ok(mut child) = sup_child.child.0.try_write().await {
-                        if let Some(std_out) = child.stdout.take() {
-                            let proc_buffer = BufReader::new(std_out);
-                            let mut lines = proc_buffer.lines();
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                if let Ok(mut rolling) = sup_child.stdout_buffer.try_write().await {
-                                    rolling.push(line);
-                                }
-                            }
-                        }
-                        if let Some(std_err) = child.stderr.take() {
-                            let proc_buffer = BufReader::new(std_err);
-                            let mut lines = proc_buffer.lines();
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                if let Ok(mut rolling) = sup_child.stderr_buffer.try_write().await {
-                                    rolling.push(line);
-                                }
-                            }
-                        }
-                    } else {
-                        log!(LogLevel::Trace, "Failed to lock the child, for stdXreading");
-                        continue;
-                    };
-
-                    sleep(Duration::from_secs(1)).await;
-                }
-            });
-
-            sup_child.monitor_std = Some(std_handle)
+        if self.monitor_std.is_some() {
+            return;
         }
+
+        let mut sup_child: SupervisedChild = self.clone().await;
+
+        let monitor_handle = tokio::spawn(async move {
+            let mut stdout_task = None;
+            let mut stderr_task = None;
+
+            if let Ok(mut child) = sup_child.child.0.try_write().await {
+                if let Some(stdout) = child.stdout.take() {
+                    let reader = Box::pin(stdout) as Pin<Box<dyn AsyncRead + Send>>;
+                    let buffer = sup_child.stdout_buffer.clone();
+                    stdout_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
+                }
+            
+                if let Some(stderr) = child.stderr.take() {
+                    let reader = Box::pin(stderr) as Pin<Box<dyn AsyncRead + Send>>;
+                    let buffer = sup_child.stderr_buffer.clone();
+                    stderr_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
+                }
+            }
+
+            if let Some(task) = stdout_task {
+                let _ = task.await;
+            }
+            if let Some(task) = stderr_task {
+                let _ = task.await;
+            }
+        });
+
+        sup_child.monitor_std = Some(monitor_handle)
+        
     }
 
     /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
@@ -693,6 +693,50 @@ pub fn is_pid_active(pid: i32) -> io::Result<bool> {
             Some(libc::EPERM) => Ok(true),  // Process exists, but no permission
             Some(err) => Err(io::Error::from_raw_os_error(err)),
             None => Err(io::Error::new(io::ErrorKind::Other, "Unknown error")),
+        }
+    }
+}
+
+use bytes::BytesMut;
+
+async fn read_stream_to_buffer<R>(
+    mut reader: R,
+    buffer: LockWithTimeout<RollingBuffer>,
+) where
+    R: Unpin + AsyncRead,
+{
+    let mut buf = BytesMut::with_capacity(1024);
+    let mut partial = String::new();
+
+    loop {
+        match reader.read_buf(&mut buf).await {
+            Ok(n) if n == 0 => break, // EOF
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Read error: {}", e);
+                break;
+            }
+        };
+
+        if let Ok(chunk) = std::str::from_utf8(&buf) {
+            partial.push_str(chunk);
+
+            while let Some(pos) = partial.find('\n') {
+                let line = partial[..pos].to_string();
+                if let Ok(mut b) = buffer.try_write().await {
+                    b.push(line);
+                }
+                partial.drain(..=pos); // remove up to and including newline
+            }
+        }
+
+        buf.clear();
+    }
+
+    // Push any trailing partial line
+    if !partial.is_empty() {
+        if let Ok(mut b) = buffer.try_write().await {
+            b.push(partial);
         }
     }
 }

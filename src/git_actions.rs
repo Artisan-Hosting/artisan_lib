@@ -15,7 +15,7 @@ use dusa_collection_utils::{
     core::errors::{ErrorArrayItem, Errors},
 };
     
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
     
@@ -105,7 +105,7 @@ pub enum GitAction {
     },
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl GitCredentials {
     /// Creates a new instance of `GitCredentials` by reading and decrypting the credentials file.
     ///
@@ -334,7 +334,7 @@ impl GitAuth {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pub fn generate_id(&self) -> Stringy {
         truncate(
             &*create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
@@ -705,7 +705,7 @@ async fn execute_git_hash_command(args: &[&str]) -> Result<String, ErrorArrayIte
 /// # Returns
 ///
 /// Returns a `PathType` representing the project path.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
     PathType::Content(format!("/var/www/ais/{}", generate_git_project_id(auth)))
 }
@@ -719,7 +719,7 @@ pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
 /// # Returns
 ///
 /// Returns a `Stringy` representing the truncated hash of the project ID.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn generate_git_project_id(auth: &GitAuth) -> Stringy {
     let hash_input = format!("{}-{}-{}", auth.branch, auth.repo, auth.user);
     let hash = create_hash(hash_input);

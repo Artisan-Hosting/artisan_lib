@@ -3,7 +3,7 @@ use core::fmt;
 use dusa_collection_utils::{
  log, core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion
 };
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ pub struct ProjectInfo {
     pub project_data: AppStatus,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl ProjectInfo {
     #[allow(deprecated)]
     pub fn get_id(&self) -> Stringy {
@@ -164,7 +164,7 @@ pub struct NodeInfo {
     pub last_updated: Stringy,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl NodeInfo {
     /// Generates a shortened hash-based string derived from the node’s IP address
     /// and internal identity.
@@ -204,7 +204,7 @@ pub struct NodeDetails {
     pub manager_data: ManagerData,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl NodeDetails {
     /// Generates a shortened hash-based string derived from the manager’s address
     /// and the node’s internal identity.
@@ -253,7 +253,7 @@ pub struct ManagerData {
     pub uptime: u64,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl ManagerData {
     /// Generates a shortened hash-based string derived from the manager’s IP address
     /// and internal identity.

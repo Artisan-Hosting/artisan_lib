@@ -47,7 +47,7 @@ static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 ///
 /// # Example
 /// ```rust
-/// # use dusa_collection_utils::types::stringy::Stringy;
+/// # use dusa_collection_utils::core::types::stringy::Stringy;
 /// # use tokio::runtime::Runtime;
 /// # use std::time::Duration;
 /// # use artisan_middleware::encryption::encrypt_text;
@@ -92,7 +92,7 @@ pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
 ///
 /// # Example
 /// ```rust
-/// # use dusa_collection_utils::types::stringy::Stringy;
+/// # use dusa_collection_utils::core::types::stringy::Stringy;
 /// # use tokio::runtime::Runtime;
 /// # use std::time::Duration;
 /// # use artisan_middleware::encryption::decrypt_text;

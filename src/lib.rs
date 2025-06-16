@@ -33,29 +33,27 @@ pub mod version;
 pub const RELEASEINFO: VersionCode = VersionCode::Beta;
 
 // // tests
-// #[path = "../src/tests/encryption_test.rs"]
-// mod encryption_test;
-
-// #[path = "../src/tests/identity_test.rs"]
-// mod identity_test;
-
 #[path = "../src/tests/process_manager.rs"]
 mod process_manager_test;
+#[path = "../src/tests/encryption.rs"]
+mod encryption_test;
 
-// #[path = "../src/tests/notification_test.rs"]
-// mod notification_test;
+#[path = "../src/tests/identity.rs"]
+mod identity_test;
 
-// #[path = "../src/tests/state_persistence_test.rs"]
-// mod state_persistence_test;
+#[path = "../src/tests/git_action.rs"]
+mod git_action_test;
 
-// #[path = "../src/tests/resource_monitor_test.rs"]
-// mod resource_monitor_test;
+#[path = "../src/tests/notification.rs"]
+mod notification_test;
 
-// #[path = "../src/tests/git_action_tests.rs"]
-// mod git_action_tests;
+#[path = "../src/tests/state_persistence.rs"]
+mod state_persistence_test;
 
-// #[path = "../src/tests/socket_communication.rs"]
-// mod socket_communication_test;
+#[cfg(target_os = "linux")]
+#[path = "../src/tests/resource_monitor.rs"]
+mod resource_monitor_test;
 
-// #[path = "../src/tests/network_communication_test.rs"]
-// mod network_communication_test;
+#[cfg(target_os = "linux")]
+#[path = "../src/tests/network.rs"]
+mod network_test;

@@ -219,16 +219,16 @@ impl fmt::Display for Metrics {
 /// update an in-memory accumulator which is later persisted for billing.
 ///
 /// ### Example:
-/// ```rust
+/// ```rust,no_run
 /// use artisan_middleware::aggregator::LiveMetrics;
-/// LiveMetrics {
+/// let _metrics = LiveMetrics {
 ///     runner_id: "abc123".into(),
 ///     instance_id: "xyz456".into(),
-///     cpu_percent: 12.5,
+///     cpu_usage: 12.5,
 ///     memory_mb: 256.0,
 ///     rx_bytes: 15000,
 ///     tx_bytes: 5000,
-/// }
+/// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveMetrics {

@@ -1,8 +1,8 @@
 use dusa_collection_utils::{
     core::errors::{ErrorArrayItem, Errors},
-    log,
     core::logger::LogLevel,
     core::types::{rwarc::LockWithTimeout, stringy::Stringy},
+    log,
 };
 use gethostname::gethostname;
 use procfs::process::{all_processes, Process};
@@ -298,7 +298,7 @@ impl ResourceMonitor {
             true => total_cpu / visited.len() as f32,
             false => 0.0,
         };
-        
+
         Ok((average_cpu, total_ram))
     }
 

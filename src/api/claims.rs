@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use super::roles::Role;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TokenType {
@@ -8,7 +8,7 @@ pub enum TokenType {
     Admin, // Not implemented
     Refresh,
     Password,
-    None
+    None,
 }
 
 impl TokenType {
@@ -32,16 +32,16 @@ impl TokenType {
             "admin" => Self::Admin,
             "refresh" => Self::Refresh,
             "password" => Self::Password,
-            _ => Self::None
+            _ => Self::None,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PasswdClaims {
-    pub sub: String,    // User ID
-    pub exp: u64,       // Expiration timestamp
-    pub kind: TokenType
+    pub sub: String, // User ID
+    pub exp: u64,    // Expiration timestamp
+    pub kind: TokenType,
 }
 
 /// JWT Claims structure.
@@ -51,9 +51,8 @@ pub struct Claims {
     pub role: Role,     // User role
     pub org_id: String, // Organization id
     pub exp: u64,       // Expiration timestamp
-    pub kind: TokenType
+    pub kind: TokenType,
 }
-
 
 impl Claims {
     /// Convert claims to a map of stringified key-values for gRPC response
@@ -69,14 +68,25 @@ impl Claims {
     /// Attempt to reconstruct `Claims` from a `HashMap<String, String>`
     pub fn from_map(mut map: HashMap<String, String>) -> Result<Self, String> {
         // Extract and remove entries from the map
-        let sub = map.remove("sub").ok_or_else(|| "Missing `sub` in claims map".to_string())?;
-        let org_id = map.remove("org_id").ok_or_else(|| "Missing `org_id` in claims map".to_string())?;
-        let role_str = map.remove("role").ok_or_else(|| "Missing `role` in claims map".to_string())?;
-        let exp_str = map.remove("exp").ok_or_else(|| "Missing `exp` in claims map".to_string())?;
-        let kind_str = map.remove("type").ok_or_else(|| "Missing `kind` in claims map".to_string())?;
+        let sub = map
+            .remove("sub")
+            .ok_or_else(|| "Missing `sub` in claims map".to_string())?;
+        let org_id = map
+            .remove("org_id")
+            .ok_or_else(|| "Missing `org_id` in claims map".to_string())?;
+        let role_str = map
+            .remove("role")
+            .ok_or_else(|| "Missing `role` in claims map".to_string())?;
+        let exp_str = map
+            .remove("exp")
+            .ok_or_else(|| "Missing `exp` in claims map".to_string())?;
+        let kind_str = map
+            .remove("type")
+            .ok_or_else(|| "Missing `kind` in claims map".to_string())?;
 
         // Parse exp as usize
-        let exp = exp_str.parse::<u64>()
+        let exp = exp_str
+            .parse::<u64>()
             .map_err(|e| format!("Failed to parse `exp`: {}", e))?;
 
         // Parse role from string (assuming Role implements FromStr)
@@ -85,7 +95,12 @@ impl Claims {
         // parse token type
         let kind = TokenType::from_str(&kind_str);
 
-        Ok(Claims { sub, org_id, role, exp, kind })
+        Ok(Claims {
+            sub,
+            org_id,
+            role,
+            exp,
+            kind,
+        })
     }
-  
 }

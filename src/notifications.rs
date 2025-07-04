@@ -3,9 +3,9 @@ use dusa_collection_utils::{
     core::errors::{
         ErrorArrayItem, Errors, OkWarning, UnifiedResult, WarningArray, WarningArrayItem, Warnings,
     },
-    log,
     core::logger::LogLevel,
     core::types::stringy::Stringy,
+    log,
 };
 use serde::{Deserialize, Serialize};
 
@@ -69,7 +69,11 @@ impl Email {
     /// let email = Email::new(destination, subject, body);
     /// ```
     pub fn new(destination: Stringy, subject: Stringy, body: Stringy) -> Self {
-        Email { destination, subject, body }
+        Email {
+            destination,
+            subject,
+            body,
+        }
     }
 
     /// Checks if the `Email` fields are valid (i.e., not empty).

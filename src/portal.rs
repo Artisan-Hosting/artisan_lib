@@ -1,13 +1,13 @@
 use colored::Colorize;
 use core::fmt;
-use dusa_collection_utils::{
- log, core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion
-};
 #[cfg(target_os = "linux")]
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
+use dusa_collection_utils::{
+    core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion, log,
+};
 
-use serde::{Deserialize, Serialize};
 use lz4::block::compress;
+use serde::{Deserialize, Serialize};
 
 use crate::aggregator::Metrics;
 #[allow(unused_imports)] // for documents
@@ -48,7 +48,7 @@ impl ProjectInfo {
                 log!(LogLevel::Warn, "Error compressing id: {}", err.to_string());
                 let fallback = b"none";
                 fallback.to_vec()
-            },
+            }
         };
         let encoded = base64::encode(&compressed);
         let result = truncate(&encoded, 100).to_owned();

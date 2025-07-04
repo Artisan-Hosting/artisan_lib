@@ -21,10 +21,10 @@
 
 use chrono::Utc;
 use colored::Colorize;
-use dusa_collection_utils::log;
 use dusa_collection_utils::core::logger::LogLevel;
 use dusa_collection_utils::core::types::pathtype::PathType;
 use dusa_collection_utils::core::types::stringy::Stringy;
+use dusa_collection_utils::log;
 use dusa_collection_utils::{core::errors::ErrorArrayItem, core::types::rwarc::LockWithTimeout};
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
@@ -271,7 +271,7 @@ pub struct BillingCosts {
     pub ram_cost: f64,
     pub bandwidth_cost: f64,
     pub total_cost: f64,
-    pub instances: u64
+    pub instances: u64,
 }
 
 impl fmt::Display for BillingCosts {
@@ -480,7 +480,7 @@ pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
     create_dir_all(&output_dir).unwrap();
     tokio::spawn(async move {
         // let mut tick = interval(Duration::from_secs(30)); // every 5 min
-    let mut tick = interval(Duration::from_secs(300)); // every 5 min
+        let mut tick = interval(Duration::from_secs(300)); // every 5 min
         loop {
             tick.tick().await;
 
@@ -902,8 +902,12 @@ pub async fn initialize_app_context(
     let usage_map_clone = usage_map.clone();
     tokio::spawn(async move {
         while let Ok(metric) = metrics_rx.recv().await {
-            if let Err(err) = update_metrics(metric, &usage_map_clone).await{
-                log!(LogLevel::Warn, "Error monitoring usage data: {}", err.err_mesg)
+            if let Err(err) = update_metrics(metric, &usage_map_clone).await {
+                log!(
+                    LogLevel::Warn,
+                    "Error monitoring usage data: {}",
+                    err.err_mesg
+                )
             }
         }
     });

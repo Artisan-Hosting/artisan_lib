@@ -1,7 +1,9 @@
 use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
-use dusa_collection_utils::{core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion};
+use dusa_collection_utils::{
+    core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion,
+};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 

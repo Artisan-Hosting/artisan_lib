@@ -3,8 +3,8 @@ mod tests {
     use crate::aggregator::Status;
     use crate::config::AppConfig;
     use crate::state_persistence::{AppState, StatePersistence};
-    use dusa_collection_utils::core::version::SoftwareVersion;
     use dusa_collection_utils::core::types::pathtype::PathType;
+    use dusa_collection_utils::core::version::SoftwareVersion;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -29,9 +29,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path: PathType = dir.path().join("state.toml").into();
 
-        StatePersistence::save_state(&state, &path)
-            .await
-            .unwrap();
+        StatePersistence::save_state(&state, &path).await.unwrap();
 
         let loaded = StatePersistence::load_state(&path).await.unwrap();
         assert_eq!(state, loaded);

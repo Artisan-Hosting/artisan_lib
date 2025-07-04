@@ -3,8 +3,8 @@ pub use dusa_collection_utils;
 use dusa_collection_utils::core::version::VersionCode;
 
 // This is a successor of the artisan_platform
-pub mod api;
 pub mod aggregator;
+pub mod api;
 pub mod cli;
 pub mod config;
 pub mod config_bundle;
@@ -33,10 +33,10 @@ pub mod version;
 pub const RELEASEINFO: VersionCode = VersionCode::ReleaseCandidate;
 
 // // tests
-#[path = "../src/tests/process_manager.rs"]
-mod process_manager_test;
 #[path = "../src/tests/encryption.rs"]
 mod encryption_test;
+#[path = "../src/tests/process_manager.rs"]
+mod process_manager_test;
 
 #[path = "../src/tests/identity.rs"]
 mod identity_test;

@@ -5,15 +5,27 @@ mod tests {
 
     #[test]
     fn test_email_validation() {
-        let email = Email::new(Stringy::from("dwhitfield@artisanhosting.net"), Stringy::from("sub"), Stringy::from("body"));
+        let email = Email::new(
+            Stringy::from("dwhitfield@artisanhosting.net"),
+            Stringy::from("sub"),
+            Stringy::from("body"),
+        );
         assert!(email.is_valid());
-        let invalid = Email::new(Stringy::from("dwhitfield@artisanhosting.net"), Stringy::from(""), Stringy::from(""));
+        let invalid = Email::new(
+            Stringy::from("dwhitfield@artisanhosting.net"),
+            Stringy::from(""),
+            Stringy::from(""),
+        );
         assert!(!invalid.is_valid());
     }
 
     #[test]
     fn test_email_json_roundtrip() {
-        let email = Email::new(Stringy::from("dwhitfield@artisanhosting.net"), Stringy::from("hello"), Stringy::from("world"));
+        let email = Email::new(
+            Stringy::from("dwhitfield@artisanhosting.net"),
+            Stringy::from("hello"),
+            Stringy::from("world"),
+        );
         let json = email.to_json().unwrap();
         let parsed = Email::from_json(&json).unwrap();
         assert_eq!(email.subject, parsed.subject);

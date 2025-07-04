@@ -1,9 +1,9 @@
 use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors};
-use dusa_collection_utils::log;
 use dusa_collection_utils::core::logger::LogLevel;
 use dusa_collection_utils::core::types::pathtype::PathType;
 use dusa_collection_utils::core::types::rb::RollingBuffer;
 use dusa_collection_utils::core::types::rwarc::LockWithTimeout;
+use dusa_collection_utils::log;
 use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
@@ -354,7 +354,7 @@ impl SupervisedChild {
                     let buffer = sup_child.stdout_buffer.clone();
                     stdout_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
                 }
-            
+
                 if let Some(stderr) = child.stderr.take() {
                     let reader = Box::pin(stderr) as Pin<Box<dyn AsyncRead + Send>>;
                     let buffer = sup_child.stderr_buffer.clone();
@@ -371,7 +371,6 @@ impl SupervisedChild {
         });
 
         sup_child.monitor_std = Some(monitor_handle)
-        
     }
 
     /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
@@ -698,10 +697,8 @@ pub fn is_pid_active(pid: i32) -> io::Result<bool> {
 
 use bytes::BytesMut;
 
-async fn read_stream_to_buffer<R>(
-    mut reader: R,
-    buffer: LockWithTimeout<RollingBuffer>,
-) where
+async fn read_stream_to_buffer<R>(mut reader: R, buffer: LockWithTimeout<RollingBuffer>)
+where
     R: Unpin + AsyncRead,
 {
     let mut buf = BytesMut::with_capacity(1024);

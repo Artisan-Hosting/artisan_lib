@@ -1,5 +1,5 @@
 use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
-use dusa_collection_utils::{log, core::logger::LogLevel, core::types::stringy::Stringy};
+use dusa_collection_utils::{core::logger::LogLevel, core::types::stringy::Stringy, log};
 use rand::Rng;
 use tokio::sync::Notify;
 
@@ -398,7 +398,6 @@ pub fn generate_key(buffer: &mut [u8]) {
         *byte = rng.gen(); // Fill each byte with random data
     }
 }
-
 
 /// Encrypts the provided data using AES-256 GCM encryption.
 ///

@@ -1,5 +1,6 @@
 use dusa_collection_utils::{
-    core::errors::ErrorArrayItem, core::functions::current_timestamp, core::version::SoftwareVersion,
+    core::errors::ErrorArrayItem, core::functions::current_timestamp,
+    core::version::SoftwareVersion,
 };
 use serde::{Deserialize, Serialize};
 

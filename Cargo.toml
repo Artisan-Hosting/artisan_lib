@@ -1,6 +1,6 @@
 [package]
 name = "artisan_middleware"
-version = "5.4.0"
+version = "5.5.0"
 edition = "2021"
 authors = [
     "Artisan Hosting",
@@ -48,10 +48,10 @@ lazy_static = "1.5.0"
 sysinfo = "0.32.0"
 gethostname = "0.5.0"
 reqwest = "0.12.9"
-recs_lib = "3.1.4"
+#recs_lib = "3.1.4"
 trust-dns-resolver = "0.21.0"
 bytes = "1.10.1"
-simple_comms = "1.2.1"
+simple_comms = "1.2.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.159"

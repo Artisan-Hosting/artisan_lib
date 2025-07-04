@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::encryption::{simple_encrypt, simple_decrypt};
+    use crate::encryption::{simple_decrypt, simple_encrypt};
 
     #[test]
     fn test_encrypt_decrypt_cycle() {

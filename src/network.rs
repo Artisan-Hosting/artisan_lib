@@ -1,4 +1,4 @@
-use dusa_collection_utils::{log, core::logger::LogLevel};
+use dusa_collection_utils::{core::logger::LogLevel, log};
 use std::error::Error;
 use std::net::IpAddr;
 use trust_dns_resolver::{

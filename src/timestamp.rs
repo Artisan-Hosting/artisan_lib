@@ -1,6 +1,6 @@
 use chrono::{Datelike, Local, NaiveDate};
 use chrono::{NaiveDateTime, TimeZone, Utc};
-use dusa_collection_utils::{log, core::logger::LogLevel, core::types::stringy::Stringy};
+use dusa_collection_utils::{core::logger::LogLevel, core::types::stringy::Stringy, log};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Retrieves the current Unix timestamp in seconds.

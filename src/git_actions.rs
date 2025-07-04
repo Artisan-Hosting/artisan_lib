@@ -11,14 +11,11 @@ use dusa_collection_utils::core::types::stringy::Stringy;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
-use dusa_collection_utils::{
-    core::errors::{ErrorArrayItem, Errors},
-};
-    
+use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors};
+
 #[cfg(target_os = "linux")]
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
-    
 use crate::encryption::{simple_decrypt, simple_encrypt};
 // use crate::encryption::{decrypt_text, encrypt_text};
 

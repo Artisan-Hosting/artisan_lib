@@ -1,11 +1,11 @@
 use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
-use dusa_collection_utils::{log, core::logger::LogLevel, core::types::stringy::Stringy};
+use dusa_collection_utils::{core::logger::LogLevel, core::types::stringy::Stringy, log};
 use rand::Rng;
 use tokio::sync::Notify;
 
 use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors, UnifiedResult};
 #[cfg(target_os = "linux")]
-use recs::{decrypt_raw, encrypt_raw, house_keeping, initialize};
+// use recs::{decrypt_raw, encrypt_raw, house_keeping, initialize};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -149,44 +149,45 @@ pub async fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
     note = "Currently unstable. Use `simple_encrypt` if possible."
 )]
 #[cfg(target_os = "linux")]
-pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
-    if let Err(err) = initialize_locker().await {
-        return UnifiedResult::new(Err(err));
-    };
+pub async fn encrypt_data(_data: &[u8]) -> UnifiedResult<Vec<u8>> {
+    UnifiedResult::new(Ok(Vec::new()))
+    // if let Err(err) = initialize_locker().await {
+    //     return UnifiedResult::new(Err(err));
+    // };
 
-    let attempts: u8 = 10;
-    let mut tries: u8 = 0;
+    // let attempts: u8 = 10;
+    // let mut tries: u8 = 0;
 
-    while tries <= attempts {
-        if execution_locked().await {
-            tries += 1;
-            tokio::time::sleep(Duration::from_millis(700)).await;
-            continue;
-        }
+    // while tries <= attempts {
+    //     if execution_locked().await {
+    //         tries += 1;
+    //         tokio::time::sleep(Duration::from_millis(700)).await;
+    //         continue;
+    //     }
 
-        match encrypt_raw(unsafe { String::from_utf8_unchecked(data.to_vec()) })
-            .await
-            .uf_unwrap()
-        {
-            Ok((key, data, count)) => {
-                call_clean().await;
+    //     match encrypt_raw(unsafe { String::from_utf8_unchecked(data.to_vec()) })
+    //         .await
+    //         .uf_unwrap()
+    //     {
+    //         Ok((key, data, count)) => {
+    //             call_clean().await;
 
-                return UnifiedResult::new(Ok(format!("{}-{}-{}", data, key, count)
-                    .as_bytes()
-                    .to_vec()));
-            }
-            Err(e) => {
-                log!(LogLevel::Error, "{}", e);
-                call_clean().await;
-                unimplemented!()
-            }
-        }
-    }
+    //             return UnifiedResult::new(Ok(format!("{}-{}-{}", data, key, count)
+    //                 .as_bytes()
+    //                 .to_vec()));
+    //         }
+    //         Err(e) => {
+    //             log!(LogLevel::Error, "{}", e);
+    //             call_clean().await;
+    //             unimplemented!()
+    //         }
+    //     }
+    // }
 
-    return UnifiedResult::new(Err(ErrorArrayItem::new(
-        Errors::GeneralError,
-        "Attempted too many times to access RECS; system busy".to_owned(),
-    )));
+    // return UnifiedResult::new(Err(ErrorArrayItem::new(
+    //     Errors::GeneralError,
+    //     "Attempted too many times to access RECS; system busy".to_owned(),
+    // )));
 }
 
 /// Decrypts raw byte data using the legacy RECS-based decryption system. Expects
@@ -211,61 +212,62 @@ pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
     note = "Currently unstable. Use `simple_decrypt` if possible."
 )]
 #[cfg(target_os = "linux")]
-pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
-    if let Err(err) = initialize_locker().await {
-        return UnifiedResult::new(Err(err));
-    };
+pub async fn decrypt_data(_data: &[u8]) -> UnifiedResult<Vec<u8>> {
+    UnifiedResult::new(Ok(Vec::new()))
+    // if let Err(err) = initialize_locker().await {
+    //     return UnifiedResult::new(Err(err));
+    // };
 
-    let attempts: u8 = 10;
-    let mut tries: u8 = 0;
+    // let attempts: u8 = 10;
+    // let mut tries: u8 = 0;
 
-    while tries <= attempts {
-        if execution_locked().await {
-            tries += 1;
-            tokio::time::sleep(Duration::from_millis(700)).await;
-            continue;
-        }
+    // while tries <= attempts {
+    //     if execution_locked().await {
+    //         tries += 1;
+    //         tokio::time::sleep(Duration::from_millis(700)).await;
+    //         continue;
+    //     }
 
-        let data_str = match std::str::from_utf8(data) {
-            Ok(s) => s,
-            Err(e) => {
-                log!(LogLevel::Error, "Invalid UTF-8 sequence: {}", e);
-                return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
-            }
-        };
+    //     let data_str = match std::str::from_utf8(data) {
+    //         Ok(s) => s,
+    //         Err(e) => {
+    //             log!(LogLevel::Error, "Invalid UTF-8 sequence: {}", e);
+    //             return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
+    //         }
+    //     };
 
-        let parts: Vec<&str> = data_str.split('-').collect();
+    //     let parts: Vec<&str> = data_str.split('-').collect();
 
-        if parts.len() != 3 {
-            log!(LogLevel::Error, "Invalid input data format");
-            return UnifiedResult::new(Err(ErrorArrayItem::new(
-                Errors::InvalidType,
-                "Input data does not contain key, data, and count separated by '-'".to_string(),
-            )));
-        }
+    //     if parts.len() != 3 {
+    //         log!(LogLevel::Error, "Invalid input data format");
+    //         return UnifiedResult::new(Err(ErrorArrayItem::new(
+    //             Errors::InvalidType,
+    //             "Input data does not contain key, data, and count separated by '-'".to_string(),
+    //         )));
+    //     }
 
-        let cleaned_parts: Vec<String> = parts.iter().map(|part| part.replace("-", "")).collect();
+    //     let cleaned_parts: Vec<String> = parts.iter().map(|part| part.replace("-", "")).collect();
 
-        let key = cleaned_parts[1].to_string();
-        let encrypted_data = cleaned_parts[0].to_string();
-        let count = match cleaned_parts[2].parse::<usize>() {
-            Ok(c) => c,
-            Err(e) => {
-                log!(LogLevel::Error, "Invalid count value: {}", e);
-                1
-            }
-        };
+    //     let key = cleaned_parts[1].to_string();
+    //     let encrypted_data = cleaned_parts[0].to_string();
+    //     let count = match cleaned_parts[2].parse::<usize>() {
+    //         Ok(c) => c,
+    //         Err(e) => {
+    //             log!(LogLevel::Error, "Invalid count value: {}", e);
+    //             1
+    //         }
+    //     };
 
-        match decrypt_raw(encrypted_data, key, count).uf_unwrap() {
-            Ok(data) => return UnifiedResult::new(Ok(data)),
-            Err(e) => return UnifiedResult::new(Err(e)),
-        }
-    }
+    //     match decrypt_raw(encrypted_data, key, count).uf_unwrap() {
+    //         Ok(data) => return UnifiedResult::new(Ok(data)),
+    //         Err(e) => return UnifiedResult::new(Err(e)),
+    //     }
+    // }
 
-    return UnifiedResult::new(Err(ErrorArrayItem::new(
-        Errors::GeneralError,
-        "Attempted too many times to access RECS; system busy".to_owned(),
-    )));
+    // return UnifiedResult::new(Err(ErrorArrayItem::new(
+    //     Errors::GeneralError,
+    //     "Attempted too many times to access RECS; system busy".to_owned(),
+    // )));
 }
 
 /// Indicates whether the encryption/decryption process is currently locked
@@ -274,12 +276,13 @@ pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
 /// # Returns
 /// `true` if locked (housekeeping is in progress), otherwise `false`.
 #[cfg(target_os = "linux")]
-async fn execution_locked() -> bool {
-    let lock = cleaning_lock.load(Ordering::Acquire);
-    if lock {
-        log!(LogLevel::Warn, "RECS locked for cleaning");
-    }
-    lock
+async fn _execution_locked() -> bool {
+    // let lock = cleaning_lock.load(Ordering::Acquire);
+    // if lock {
+    //     log!(LogLevel::Warn, "RECS locked for cleaning");
+    // }
+    // lock
+    false
 }
 
 /// Temporarily prevents the RECS cleaning operation from happening while
@@ -318,15 +321,15 @@ where
 {
     cleaning_loop_initialized.store(true, Ordering::Relaxed);
     let result: Vec<u8> = callback(&data).await.uf_unwrap()?;
-    if let Err(err) = house_keeping().await {
-        log!(LogLevel::Error, "HouseKeeping: {}", err);
-    }
+    // if let Err(err) = house_keeping().await {
+    //     log!(LogLevel::Error, "HouseKeeping: {}", err);
+    // }
     Ok(result)
 }
 
 /// Triggers RECS cleanup, notifying the `clean_loop` to proceed.
 #[cfg(target_os = "linux")]
-async fn call_clean() {
+async fn _call_clean() {
     cleaning_call.notify_one();
     log!(LogLevel::Trace, "Recs clean called");
 }
@@ -334,7 +337,7 @@ async fn call_clean() {
 /// An asynchronous loop that waits for notifications to clean up RECS data.
 /// Once triggered, it acquires a lock, performs housekeeping, and releases the lock.
 #[cfg(target_os = "linux")]
-async fn clean_loop() -> Result<(), ErrorArrayItem> {
+async fn _clean_loop() -> Result<(), ErrorArrayItem> {
     cleaning_loop_initialized.store(true, Ordering::Release);
     loop {
         tokio::select! {
@@ -342,9 +345,9 @@ async fn clean_loop() -> Result<(), ErrorArrayItem> {
                 cleaning_lock.store(true, Ordering::SeqCst);
                 tokio::time::sleep(Duration::from_millis(300)).await;
                 // * Anything less than 250 may start cleaning before operations have finished
-                if let Err(err) = house_keeping().await {
-                    log!(LogLevel::Error, "HouseKeeping: {}", err);
-                }
+                // if let Err(err) = house_keeping().await {
+                //     log!(LogLevel::Error, "HouseKeeping: {}", err);
+                // }
                 cleaning_lock.store(false, Ordering::SeqCst);
             }
         }
@@ -359,19 +362,19 @@ async fn clean_loop() -> Result<(), ErrorArrayItem> {
 /// - `Ok(())` on successful initialization.
 /// - `Err(ErrorArrayItem)` if initialization fails.
 #[cfg(target_os = "linux")]
-async fn initialize_locker() -> Result<(), ErrorArrayItem> {
+async fn _initialize_locker() -> Result<(), ErrorArrayItem> {
     match initialized.load(Ordering::Relaxed) {
         true => {
             if !cleaning_loop_initialized.load(Ordering::Relaxed) {
-                tokio::spawn(clean_loop());
+                // tokio::spawn(clean_loop());
             }
             Ok(())
         }
         false => {
-            initialize(true).await.uf_unwrap()?;
+            // initialize(true).await.uf_unwrap()?;
             sleep(Duration::from_nanos(100)).await;
             initialized.store(true, Ordering::Relaxed);
-            tokio::spawn(clean_loop());
+            // tokio::spawn(clean_loop());
             cleaning_loop_initialized.store(true, Ordering::Relaxed);
             Ok(())
         }
@@ -395,7 +398,6 @@ pub fn generate_key(buffer: &mut [u8]) {
         *byte = rng.gen(); // Fill each byte with random data
     }
 }
-
 
 /// Encrypts the provided data using AES-256 GCM encryption.
 ///

@@ -31,6 +31,7 @@ const MAIL_ADDRESS: &str = "185.187.235.4:1827";
 /// and sending the email over a TCP stream to a mail server.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Email {
+    pub destination: Stringy,
     /// The subject of the email message.
     pub subject: Stringy,
     /// The body content of the email message.
@@ -41,7 +42,8 @@ impl fmt::Display for Email {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Subject: {}, Body: {}",
+            "To: {}, Subject: {}, Body: {}",
+            self.destination.bold().green(),
             self.subject.bold().blue(),
             self.body.bold().blue()
         )
@@ -61,12 +63,13 @@ impl Email {
     /// ```rust
     /// # use dusa_collection_utils::core::types::stringy::Stringy;
     /// # use artisan_middleware::notifications::Email;
+    /// let destination = Stringy::from("dwhitfield@artisanhosting.net");
     /// let subject = Stringy::from("Greetings");
     /// let body = Stringy::from("Hello, how are you?");
-    /// let email = Email::new(subject, body);
+    /// let email = Email::new(destination, subject, body);
     /// ```
-    pub fn new(subject: Stringy, body: Stringy) -> Self {
-        Email { subject, body }
+    pub fn new(destination: Stringy, subject: Stringy, body: Stringy) -> Self {
+        Email { destination, subject, body }
     }
 
     /// Checks if the `Email` fields are valid (i.e., not empty).
@@ -79,11 +82,11 @@ impl Email {
     /// # Example
     /// ```rust
     /// # use artisan_middleware::notifications::Email;
-    /// let email = Email::new("Subject".into(), "Body".into());
+    /// let email = Email::new("dwhitfield@artisanhosting.net".into(), "Subject".into(), "Body".into());
     /// assert!(email.is_valid());
     /// ```
     pub fn is_valid(&self) -> bool {
-        !self.subject.is_empty() && !self.body.is_empty()
+        !self.subject.is_empty() && !self.body.is_empty() && !self.destination.is_empty()
     }
 
     /// Converts this `Email` instance to a JSON string.
@@ -95,7 +98,7 @@ impl Email {
     /// # Example
     /// ```rust
     /// # use artisan_middleware::notifications::Email;
-    /// let email = Email::new("Subject".into(), "Body".into());
+    /// let email = Email::new("dwhitfield@artisanhosting.net".into(), "Subject".into(), "Body".into());
     /// match email.to_json() {
     ///     Ok(json_str) => println!("JSON: {}", json_str),
     ///     Err(err) => eprintln!("Could not serialize email: {}", err),
@@ -118,7 +121,7 @@ impl Email {
     /// # Example
     /// ```rust
     /// # use artisan_middleware::notifications::Email;
-    /// let json_data = r#"{"subject":"Hello","body":"World"}"#;
+    /// let json_data = r#"{"destination":"dwhitfield@artisanhosting.net","subject":"Hello","body":"World"}"#;
     /// match Email::from_json(json_data) {
     ///     Ok(email) => println!("Email Subject: {}", email.subject),
     ///     Err(err) => eprintln!("Could not deserialize email: {}", err),
@@ -155,7 +158,7 @@ impl Email {
     /// # use artisan_middleware::notifications::Email;
     /// # let rt = Runtime::new().unwrap();
     /// # rt.block_on(async {
-    /// let email = Email::new(Stringy::from("Test Subject"), Stringy::from("Test Body"));
+    /// let email = Email::new(Stringy::from("dwhitfield@artisanhosting.net"), Stringy::from("Test Subject"), Stringy::from("Test Body"));
     /// let result = email.send(None).await; // uses MAIL_ADDRESS by default
     /// match result.uf_unwrap() {
     ///     Ok(_) => println!("Email sent successfully!"),

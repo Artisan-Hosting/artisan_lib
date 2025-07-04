@@ -30,7 +30,7 @@ pub mod timestamp;
 pub mod users;
 pub mod version;
 
-pub const RELEASEINFO: VersionCode = VersionCode::Beta;
+pub const RELEASEINFO: VersionCode = VersionCode::ReleaseCandidate;
 
 // // tests
 #[path = "../src/tests/process_manager.rs"]

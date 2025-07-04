@@ -1,501 +1,464 @@
-use {
-    dusa_collection_utils::{
-        errors::{
-            ErrorArray, ErrorArrayItem, OkWarning, UnifiedResult as uf, WarningArray,
-            WarningArrayItem, Warnings,
-        },
-        stringy::Stringy,
-        types::PathType,
+use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
+use dusa_collection_utils::{log, core::logger::LogLevel, core::types::stringy::Stringy};
+use rand::Rng;
+use tokio::sync::Notify;
+
+use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors, UnifiedResult};
+#[cfg(target_os = "linux")]
+use recs::{decrypt_raw, encrypt_raw, house_keeping, initialize};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
     },
-    dusa_common::{
-        get_id,
-        prefix::{receive_message, send_message},
-        set_file_ownership, DecryptResponseData, Message, MessageType, RequestPayload,
-        RequestRecsPlainText, RequestRecsSimple, RequestRecsWrite, SOCKET_PATH, VERSION,
-    },
-    nix::unistd::geteuid,
-    std::{fs, os::unix::net::UnixStream, path::PathBuf, time::Duration},
+    time::Duration,
 };
+use tokio::time::sleep;
 
-pub trait Encryption {
-    fn encrypt_text(&self, data: Stringy) -> Result<Stringy, ErrorArrayItem>;
-    fn decrypt_text(&self, data: Stringy) -> Result<Stringy, ErrorArrayItem>;
+#[cfg(target_os = "linux")]
+lazy_static::lazy_static! {
+/// Indicates whether the legacy (RECS-based) encryption system has been initialized.
+static ref initialized:  Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
+    /// Tracks if the cleaning loop used by the RECS system has been spawned.
+    static ref cleaning_loop_initialized: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
+    /// A `Notify` instance used to trigger a "cleaning" operation within RECS.
+    static ref cleaning_call: Arc<Notify> = Arc::new(Notify::new());
+
+    /// Indicates whether the encryption/decryption operations are currently "locked" while cleaning.
+    static ref cleaning_lock: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
-pub fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
-    match run(
-        ProgramMode::EncryptText,
-        None,
-        None,
-        None,
-        Some(data.to_string()),
-    )
-    .uf_unwrap()
-    {
-        Ok(d) => match d {
-            Some(d) => Ok(Stringy::new(&d)),
-            None => {
-                return Err(ErrorArrayItem::new(
-                    dusa_collection_utils::errors::Errors::GeneralError,
-                    String::from("No data received from dusa"),
-                ))
+// region: Legacy Encryption/Decryption
+
+/// Encrypts text data using the legacy RECS-based encryption system.
+///
+/// # Deprecation
+/// Marked as **deprecated** since version 4.3.0.
+/// Please use [`simple_encrypt`] instead if possible.
+///
+/// # Arguments
+/// - `data`: The [`Stringy`] text to encrypt.
+///
+/// # Returns
+/// - `Ok(Stringy)`: The encrypted data as a `Stringy`.
+/// - `Err(ErrorArrayItem)`: An error if encryption fails.
+///
+/// # Example
+/// ```rust
+/// # use dusa_collection_utils::core::types::stringy::Stringy;
+/// # use tokio::runtime::Runtime;
+/// # use std::time::Duration;
+/// # use artisan_middleware::encryption::encrypt_text;
+/// # let rt = Runtime::new().unwrap();
+/// # let text = Stringy::from("sensitive information");
+/// # rt.block_on(async {
+///     
+///     #[allow(deprecated)]
+///     match encrypt_text(text).await {
+///         Ok(encrypted) => println!("Encrypted data: {}", encrypted),
+///         Err(err) => eprintln!("Encryption failed: {}", err),
+///     }
+///
+///  # });
+/// ```
+#[allow(deprecated)]
+#[cfg(target_os = "linux")]
+#[deprecated(
+    since = "4.3.0",
+    note = "Currently unstable. Use `simple_encrypt` if possible."
+)]
+pub async fn encrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
+    let data_bytes = data.as_bytes().to_vec();
+    let plain_bytes = encrypt_data(&data_bytes).await.uf_unwrap()?;
+
+    let text = Stringy::from(String::from_utf8(plain_bytes)?);
+    Ok(text)
+}
+
+/// Decrypts text data using the legacy RECS-based decryption system.
+///
+/// # Deprecation
+/// Marked as **deprecated** since version 4.3.0.
+/// Please use [`simple_decrypt`] instead if possible.
+///
+/// # Arguments
+/// - `data`: The [`Stringy`] text to decrypt.
+///
+/// # Returns
+/// - `Ok(Stringy)`: The decrypted data as a `Stringy`.
+/// - `Err(ErrorArrayItem)`: An error if decryption fails.
+///
+/// # Example
+/// ```rust
+/// # use dusa_collection_utils::core::types::stringy::Stringy;
+/// # use tokio::runtime::Runtime;
+/// # use std::time::Duration;
+/// # use artisan_middleware::encryption::decrypt_text;
+/// # use artisan_middleware::encryption::encrypt_text;
+/// # let rt = Runtime::new().unwrap();
+/// # let text = Stringy::from("sensitive information");
+/// # rt.block_on(async {
+///
+///     #[allow(deprecated)]
+///     let encrypted = encrypt_text(text).await.unwrap();
+///
+///     #[allow(deprecated)]
+///     match decrypt_text(encrypted).await {
+///         Ok(decrypted) => println!("Decrypted data: {}", decrypted),
+///         Err(err) => eprintln!("Decryption failed: {}", err),
+///     }
+///
+/// # });
+/// ```
+#[allow(deprecated)]
+#[cfg(target_os = "linux")]
+#[deprecated(
+    since = "4.3.0",
+    note = "Currently unstable. Use `simple_decrypt` if possible."
+)]
+pub async fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
+    let data_bytes: &[u8] = data.as_bytes();
+    let decrypted_bytes: Vec<u8> = decrypt_data(&data_bytes).await.uf_unwrap()?;
+    let decrypted_string: String = String::from_utf8(decrypted_bytes)?;
+    let decrypted_stringy: Stringy = Stringy::Immutable(Arc::<str>::from(decrypted_string));
+
+    Ok(decrypted_stringy)
+}
+
+/// Encrypts raw byte data using the legacy RECS-based encryption system, producing
+/// a `UnifiedResult<Vec<u8>>` containing the cipher text (with key & other metadata).
+///
+/// # Deprecation
+/// Marked as **deprecated** since version 4.3.0.
+/// Please use [`simple_encrypt`] instead if possible.
+///
+/// # Arguments
+/// - `data`: The byte slice to encrypt.
+///
+/// # Returns
+/// - `UnifiedResult<Vec<u8>>`: On success, returns a byte vector containing the encrypted data.
+///   On failure, returns an `ErrorArrayItem` describing what went wrong.
+///
+/// # Behavior
+/// This function attempts multiple times (up to `attempts`) to acquire a lock if the
+/// system is busy. If it remains locked, it returns an error.
+#[deprecated(
+    since = "4.3.0",
+    note = "Currently unstable. Use `simple_encrypt` if possible."
+)]
+#[cfg(target_os = "linux")]
+pub async fn encrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
+    if let Err(err) = initialize_locker().await {
+        return UnifiedResult::new(Err(err));
+    };
+
+    let attempts: u8 = 10;
+    let mut tries: u8 = 0;
+
+    while tries <= attempts {
+        if execution_locked().await {
+            tries += 1;
+            tokio::time::sleep(Duration::from_millis(700)).await;
+            continue;
+        }
+
+        match encrypt_raw(unsafe { String::from_utf8_unchecked(data.to_vec()) })
+            .await
+            .uf_unwrap()
+        {
+            Ok((key, data, count)) => {
+                call_clean().await;
+
+                return UnifiedResult::new(Ok(format!("{}-{}-{}", data, key, count)
+                    .as_bytes()
+                    .to_vec()));
             }
-        },
-        Err(mut e) => return Err(e.pop()),
-    }
-}
-
-pub fn decrypt_text(data: Stringy) -> Result<Stringy, ErrorArrayItem> {
-    match run(
-        ProgramMode::DecryptText,
-        None,
-        None,
-        None,
-        Some(data.to_string()),
-    )
-    .uf_unwrap()
-    {
-        Ok(d) => match d {
-            Some(d) => Ok(Stringy::new(&d)),
-            None => {
-                return Err(ErrorArrayItem::new(
-                    dusa_collection_utils::errors::Errors::GeneralError,
-                    String::from("No data received from dusa"),
-                ))
+            Err(e) => {
+                log!(LogLevel::Error, "{}", e);
+                call_clean().await;
+                unimplemented!()
             }
-        },
-        Err(mut e) => return Err(e.pop()),
+        }
     }
+
+    return UnifiedResult::new(Err(ErrorArrayItem::new(
+        Errors::GeneralError,
+        "Attempted too many times to access RECS; system busy".to_owned(),
+    )));
 }
 
-// Please ignore this trash
-pub enum ProgramMode {
-    StoreFile,
-    RetrieveFile,
-    EncryptText,
-    DecryptText,
-    RemoveFile,
-}
-
-#[allow(unused_variables)]
-fn run(
-    mode: ProgramMode,
-    path: Option<String>,
-    owner: Option<String>,
-    name: Option<String>,
-    data: Option<String>,
-) -> uf<Option<String>> {
-    let mut e1: ErrorArray = ErrorArray::new_container();
-    let w1: WarningArray = WarningArray::new_container();
-
-    let socket_path: PathType = match SOCKET_PATH(false, e1.clone(), w1.clone()).uf_unwrap() {
-        Ok(d) => {
-            d.warning.display();
-            d.data
-        }
-        Err(e) => {
-            e.display(true);
-            unreachable!();
-        }
+/// Decrypts raw byte data using the legacy RECS-based decryption system. Expects
+/// the data to contain key and count metadata (separated by '-').
+///
+/// # Deprecation
+/// Marked as **deprecated** since version 4.3.0.
+/// Please use [`simple_decrypt`] if possible.
+///
+/// # Arguments
+/// - `data`: The byte slice to decrypt.  
+///
+/// # Returns
+/// - `UnifiedResult<Vec<u8>>`: On success, returns a byte vector containing the decrypted data.
+///   On failure, returns an `ErrorArrayItem` describing the error.
+///
+/// # Behavior
+/// Repeatedly checks if the system is locked. If locked, it waits and retries.
+/// Data must be in the format `[encrypted_data]-[key]-[count]`.
+#[deprecated(
+    since = "4.3.0",
+    note = "Currently unstable. Use `simple_decrypt` if possible."
+)]
+#[cfg(target_os = "linux")]
+pub async fn decrypt_data(data: &[u8]) -> UnifiedResult<Vec<u8>> {
+    if let Err(err) = initialize_locker().await {
+        return UnifiedResult::new(Err(err));
     };
 
-    let stream: UnixStream = match UnixStream::connect(socket_path.clone()) {
-        Ok(d) => d,
-        Err(e) => {
-            e1.push(ErrorArrayItem::from(e));
-            return uf::new(Err(e1));
-        }
-    };
+    let attempts: u8 = 10;
+    let mut tries: u8 = 0;
 
-    let result: uf<OkWarning<Option<String>>> = match mode {
-        ProgramMode::StoreFile => encrypt_file(path, stream, w1.clone(), e1.clone()),
-        ProgramMode::RetrieveFile => decrypt_file(path, stream, w1.clone(), e1.clone()),
-        ProgramMode::EncryptText => encryption_of_text(data, stream, w1.clone(), e1.clone()),
-        ProgramMode::DecryptText => decryption_of_text(data, stream, w1.clone(), e1.clone()),
-        ProgramMode::RemoveFile => remove_file(path, stream, w1.clone(), e1.clone()),
-    };
-
-    match result.uf_unwrap() {
-        Ok(d) => {
-            d.warning.display();
-            return uf::new(Ok(d.data));
+    while tries <= attempts {
+        if execution_locked().await {
+            tries += 1;
+            tokio::time::sleep(Duration::from_millis(700)).await;
+            continue;
         }
-        Err(e) => return uf::new(Err(e)),
+
+        let data_str = match std::str::from_utf8(data) {
+            Ok(s) => s,
+            Err(e) => {
+                log!(LogLevel::Error, "Invalid UTF-8 sequence: {}", e);
+                return UnifiedResult::new(Err(ErrorArrayItem::from(e)));
+            }
+        };
+
+        let parts: Vec<&str> = data_str.split('-').collect();
+
+        if parts.len() != 3 {
+            log!(LogLevel::Error, "Invalid input data format");
+            return UnifiedResult::new(Err(ErrorArrayItem::new(
+                Errors::InvalidType,
+                "Input data does not contain key, data, and count separated by '-'".to_string(),
+            )));
+        }
+
+        let cleaned_parts: Vec<String> = parts.iter().map(|part| part.replace("-", "")).collect();
+
+        let key = cleaned_parts[1].to_string();
+        let encrypted_data = cleaned_parts[0].to_string();
+        let count = match cleaned_parts[2].parse::<usize>() {
+            Ok(c) => c,
+            Err(e) => {
+                log!(LogLevel::Error, "Invalid count value: {}", e);
+                1
+            }
+        };
+
+        match decrypt_raw(encrypted_data, key, count).uf_unwrap() {
+            Ok(data) => return UnifiedResult::new(Ok(data)),
+            Err(e) => return UnifiedResult::new(Err(e)),
+        }
     }
+
+    return UnifiedResult::new(Err(ErrorArrayItem::new(
+        Errors::GeneralError,
+        "Attempted too many times to access RECS; system busy".to_owned(),
+    )));
 }
 
-fn encrypt_file(
-    path: Option<String>,
-    mut stream: UnixStream,
-    mut warnings: WarningArray,
-    errors: ErrorArray,
-) -> uf<OkWarning<Option<String>>> {
-    let file_path: PathType = match path {
-        Some(p) => {
-            match get_file_path(errors.clone(), warnings.clone(), &PathBuf::from(p)).uf_unwrap() {
-                Ok(d) => {
-                    d.warning.display();
-                    d.data
+/// Indicates whether the encryption/decryption process is currently locked
+/// due to a housekeeping operation. Logs a warning if a lock is active.
+///
+/// # Returns
+/// `true` if locked (housekeeping is in progress), otherwise `false`.
+#[cfg(target_os = "linux")]
+async fn execution_locked() -> bool {
+    let lock = cleaning_lock.load(Ordering::Acquire);
+    if lock {
+        log!(LogLevel::Warn, "RECS locked for cleaning");
+    }
+    lock
+}
+
+/// Temporarily prevents the RECS cleaning operation from happening while
+/// the provided `callback` is executed, to avoid clearing temporary data too soon.
+///
+/// # Safety
+/// This function is marked as `unsafe` because it uses `unsafe` string
+/// conversions internally. Only use it if you are certain the input data
+/// can be safely converted to `String`. Also This function can lead to
+/// unessacery filling of the /tmp dir if used too many times as the cleaning
+/// loop looses its refrence to the tmp recs data called this way
+///
+/// # Deprecation
+/// Marked as **deprecated** since version 4.3.0.  
+/// Prefer using `simple_*` functions that do not rely on legacy RECS mechanics.
+///
+/// # Arguments
+/// - `callback`: A function or closure that performs an encryption/decryption operation.
+/// - `data`: The byte slice on which the operation acts.
+///
+/// # Returns
+/// - `Ok(Vec<u8>)`: The operation’s successful output.
+/// - `Err(ErrorArrayItem)`: An error if the operation or housekeeping fails.
+#[cfg(target_os = "linux")]
+#[deprecated(
+    since = "4.3.0",
+    note = "Currently unstable. Use `simple_*` if possible."
+)]
+pub async unsafe fn clean_override_op<'a, F, Fut>(
+    callback: F,
+    data: &'a [u8],
+) -> Result<Vec<u8>, ErrorArrayItem>
+where
+    F: Fn(&'a [u8]) -> Fut,
+    Fut: std::future::Future<Output = UnifiedResult<Vec<u8>>>,
+{
+    cleaning_loop_initialized.store(true, Ordering::Relaxed);
+    let result: Vec<u8> = callback(&data).await.uf_unwrap()?;
+    if let Err(err) = house_keeping().await {
+        log!(LogLevel::Error, "HouseKeeping: {}", err);
+    }
+    Ok(result)
+}
+
+/// Triggers RECS cleanup, notifying the `clean_loop` to proceed.
+#[cfg(target_os = "linux")]
+async fn call_clean() {
+    cleaning_call.notify_one();
+    log!(LogLevel::Trace, "Recs clean called");
+}
+
+/// An asynchronous loop that waits for notifications to clean up RECS data.
+/// Once triggered, it acquires a lock, performs housekeeping, and releases the lock.
+#[cfg(target_os = "linux")]
+async fn clean_loop() -> Result<(), ErrorArrayItem> {
+    cleaning_loop_initialized.store(true, Ordering::Release);
+    loop {
+        tokio::select! {
+            _ = cleaning_call.notified() => {
+                cleaning_lock.store(true, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                // * Anything less than 250 may start cleaning before operations have finished
+                if let Err(err) = house_keeping().await {
+                    log!(LogLevel::Error, "HouseKeeping: {}", err);
                 }
-                Err(e) => return uf::new(Err(e)),
+                cleaning_lock.store(false, Ordering::SeqCst);
             }
         }
-        None => return uf::new(Err(errors)),
-    };
-
-    // Changing ownership of the file
-    let (uid, gid) = get_id();
-    if let Err(err) =
-        set_file_ownership(&file_path.to_path_buf(), uid, gid, errors.clone()).uf_unwrap()
-    {
-        return uf::new(Err(err));
+        sleep(Duration::from_secs(6)).await;
     }
-
-    // Creating the command to send
-    let request_data = RequestRecsWrite {
-        path: file_path,
-        owner: String::from("system"),
-        name: String::from("lost"),
-        uid: u32::from(geteuid()),
-    };
-
-    let msg = Message {
-        version: VERSION.to_owned(),
-        msg_type: MessageType::Request,
-        payload: serde_json::to_value(RequestPayload::Write(request_data)).unwrap(),
-        error: None,
-    };
-
-    // Communicating with server
-    if let Err(err) = send_message(&mut stream, &msg, errors.clone()).uf_unwrap() {
-        return uf::new(Err(err));
-    }
-    std::thread::sleep(Duration::from_nanos(100));
-    let response = receive_message(&mut stream, errors.clone()).unwrap();
-
-    match response.msg_type {
-        MessageType::Response => {
-            let response_data = response.payload;
-            let msg = response_data
-                .get("Ok")
-                .and_then(|v| v.as_str().map(|s| s.to_string()));
-
-            return uf::new(Ok(OkWarning {
-                data: Some(msg.unwrap()),
-                warning: warnings,
-            }));
-        }
-        MessageType::ErrorResponse => return uf::new(Err(errors)),
-        _ => {
-            let msg = String::from("Server responded in an unexpected way, ignoring ...");
-            warnings.push(WarningArrayItem::new_details(Warnings::Warning, msg))
-        }
-    }
-
-    uf::new(Ok(OkWarning {
-        data: None,
-        warning: warnings,
-    }))
 }
 
-#[allow(unused_variables)]
-fn decrypt_file(
-    path: Option<String>,
-    mut stream: UnixStream,
-    mut warnings: WarningArray,
-    mut errors: ErrorArray,
-) -> uf<OkWarning<Option<String>>> {
-    let request_data = RequestRecsSimple {
-        command: dusa_common::Commands::DecryptFile,
-        owner: String::from("system"),
-        name: String::from("lost"),
-        uid: u32::from(geteuid()),
-    };
-
-    let msg = Message {
-        version: VERSION.to_owned(),
-        msg_type: MessageType::Request,
-        payload: serde_json::to_value(RequestPayload::Simple(request_data)).unwrap(),
-        error: None,
-    };
-
-    // Communicating with server
-    if let Err(err) = send_message(&mut stream, &msg, errors.clone()).uf_unwrap() {
-        err.display(false);
-        return uf::new(Err(errors));
-    }
-    let response = receive_message(&mut stream, errors.clone()).unwrap();
-
-    match response.msg_type {
-        MessageType::Response => {
-            let response_data = response.payload;
-            let data = DecryptResponseData {
-                temp_p: response_data
-                    .get("temp_p")
-                    .and_then(|v| v.get("Content"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| PathType::Content(s.to_string()))
-                    .unwrap_or_else(|| PathType::Content("/tmp/null".to_string())),
-                orig_p: response_data
-                    .get("orig_p")
-                    .and_then(|v| v.get("PathBuf"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| PathType::Content(s.to_string()))
-                    .unwrap_or_else(|| PathType::Content("/tmp/null".to_string())),
-                ttl: response_data
-                    .get("ttl")
-                    .and_then(|v| v.get("secs"))
-                    .and_then(|v| v.as_u64())
-                    .map(|t| Duration::from_secs(t))
-                    .unwrap_or(Duration::from_secs(5)), // keep the timing tight
-            };
-
-            // Send an ACK message
-            let ack = Message {
-                version: VERSION.to_owned(),
-                msg_type: MessageType::Acknowledge,
-                payload: serde_json::json!({}),
-                error: None,
-            };
-            send_message(&mut stream, &ack, errors.clone());
-            let _ = receive_message(&mut stream, errors.clone()).unwrap();
-
-            // copy the file to the original path
-            match fs::copy(data.temp_p, data.orig_p) {
-                Ok(d) => {
-                    if d != 0 {
-                        // log(format!("{:#?}", data));
-                        return uf::new(Ok(OkWarning {
-                            data: Some("done".to_string()),
-                            warning: warnings,
-                        }));
-                    }
-                }
-                Err(e) => {
-                    errors.push(ErrorArrayItem::from(e));
-                    errors.display(true);
-                }
+/// Initializes the legacy RECS-based encryption system if it hasn't been
+/// initialized yet. Also spawns the cleaning loop if not already running.
+///
+/// # Returns
+/// - `Ok(())` on successful initialization.
+/// - `Err(ErrorArrayItem)` if initialization fails.
+#[cfg(target_os = "linux")]
+async fn initialize_locker() -> Result<(), ErrorArrayItem> {
+    match initialized.load(Ordering::Relaxed) {
+        true => {
+            if !cleaning_loop_initialized.load(Ordering::Relaxed) {
+                tokio::spawn(clean_loop());
             }
+            Ok(())
         }
-        MessageType::ErrorResponse => {
-            return uf::new(Err(errors));
-        }
-        _ => {
-            let msg = String::from("Server responded in an unexpected way, ignoring ...");
-            warnings.push(WarningArrayItem::new_details(Warnings::Warning, msg))
+        false => {
+            initialize(true).await.uf_unwrap()?;
+            sleep(Duration::from_nanos(100)).await;
+            initialized.store(true, Ordering::Relaxed);
+            tokio::spawn(clean_loop());
+            cleaning_loop_initialized.store(true, Ordering::Relaxed);
+            Ok(())
         }
     }
-
-    uf::new(Ok(OkWarning {
-        data: None,
-        warning: warnings,
-    }))
 }
 
-fn encryption_of_text(
-    data: Option<String>,
-    mut stream: UnixStream,
-    mut warnings: WarningArray,
-    errors: ErrorArray,
-) -> uf<OkWarning<Option<String>>> {
-    let data = data.unwrap_or("hello world".to_string());
+// endregion: Legacy Encryption/Decryption
 
-    let request_data = RequestRecsPlainText {
-        command: dusa_common::Commands::EncryptRawText,
-        data,
-        uid: u32::from(geteuid()),
-    };
+// region: Modern Encryption/Decryption
 
-    let msg = Message {
-        version: VERSION.to_owned(),
-        msg_type: MessageType::Request,
-        payload: serde_json::to_value(RequestPayload::PlainText(request_data)).unwrap(),
-        error: None,
-    };
+/// The size (in bytes) of the GCM nonce. GCM requires a 96-bit (12-byte) nonce.
+#[allow(unused_assignments)]
+const NONCE_SIZE: usize = 12;
 
-    // Communicating with server
-    let _ = send_message(&mut stream, &msg, errors.clone());
-    std::thread::sleep(Duration::from_nanos(100));
-    let response = receive_message(&mut stream, errors.clone()).unwrap();
+/// The size (in bytes) of the AES-256 key (256 bits → 32 bytes).
+const KEY_SIZE: usize = 32;
 
-    match response.msg_type {
-        MessageType::Response => {
-            let response_data = response.payload;
-
-            // Send an ACK message
-            let ack = Message {
-                version: VERSION.to_owned(),
-                msg_type: MessageType::Acknowledge,
-                payload: serde_json::json!({}),
-                error: None,
-            };
-            send_message(&mut stream, &ack, errors.clone());
-            let _ = receive_message(&mut stream, errors.clone()).unwrap();
-
-            return uf::new(Ok(OkWarning {
-                data: response_data
-                    .get("value")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                warning: warnings,
-            }));
-        }
-        MessageType::ErrorResponse => {
-            return uf::new(Err(errors));
-        }
-        _ => {
-            let msg = String::from("Server responded in an unexpected way, ignoring ...");
-            warnings.push(WarningArrayItem::new_details(Warnings::Warning, msg))
-        }
-    };
-
-    uf::new(Ok(OkWarning {
-        warning: warnings,
-        data: None,
-    }))
+pub fn generate_key(buffer: &mut [u8]) {
+    let mut rng = rand::thread_rng(); // Create a random number generator
+    for byte in buffer.iter_mut() {
+        *byte = rng.gen(); // Fill each byte with random data
+    }
 }
 
-fn decryption_of_text(
-    data: Option<String>,
-    mut stream: UnixStream,
-    mut warnings: WarningArray,
-    errors: ErrorArray,
-) -> uf<OkWarning<Option<String>>> {
-    let data = data.unwrap_or("hello world".to_string());
 
-    let request_data = RequestRecsPlainText {
-        command: dusa_common::Commands::DecryptRawText,
-        data,
-        uid: u32::from(geteuid()),
-    };
+/// Encrypts the provided data using AES-256 GCM encryption.
+///
+/// This modern approach is recommended over the legacy RECS-based system.
+///
+/// # Arguments
+/// - `data`: Byte slice of the plaintext data to be encrypted.
+///
+/// # Returns
+/// - `Ok(Stringy)`: A hex-encoded string containing the key, nonce, and ciphertext.
+/// - `Err(ErrorArrayItem)`: An error if encryption fails.
+pub fn simple_encrypt(data: &[u8]) -> Result<Stringy, ErrorArrayItem> {
+    // Generate a random key and nonce
+    let mut key: [u8; 32] = [0u8; 32];
+    generate_key(&mut key);
+    let cipher = Aes256Gcm::new(&key.into());
+    let nonce_bytes = rand::thread_rng().gen::<[u8; NONCE_SIZE]>();
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let msg = Message {
-        version: VERSION.to_owned(),
-        msg_type: MessageType::Request,
-        payload: serde_json::to_value(RequestPayload::PlainText(request_data)).unwrap(),
-        error: None,
-    };
+    // Encrypt the data
+    let ciphertext = cipher
+        .encrypt(nonce, data)
+        .map_err(|e| ErrorArrayItem::new(Errors::InvalidBlockData, e.to_string()))?;
 
-    // Communicating with server
-    let _ = send_message(&mut stream, &msg, errors.clone());
-    std::thread::sleep(Duration::from_nanos(100));
-    let response = receive_message(&mut stream, errors.clone()).unwrap();
+    // Combine the key, nonce, and ciphertext into a single byte stream
+    let mut result = Vec::with_capacity(KEY_SIZE + NONCE_SIZE + ciphertext.len());
+    result.extend_from_slice(&key);
+    result.extend_from_slice(nonce);
+    result.extend_from_slice(&ciphertext);
 
-    match response.msg_type {
-        MessageType::Response => {
-            let response_data = response.payload;
+    let cipher_text = Stringy::from(hex::encode(result));
 
-            // Send an ACK message
-            let ack = Message {
-                version: VERSION.to_owned(),
-                msg_type: MessageType::Acknowledge,
-                payload: serde_json::json!({}),
-                error: None,
-            };
-            send_message(&mut stream, &ack, errors.clone());
-            let _ = receive_message(&mut stream, errors.clone()).unwrap();
-
-            return uf::new(Ok(OkWarning {
-                data: response_data
-                    .get("value")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                warning: warnings,
-            }));
-        }
-        MessageType::ErrorResponse => {
-            return uf::new(Err(errors));
-        }
-        _ => {
-            let msg = String::from("Server responded in an unexpected way, ignoring ...");
-            warnings.push(WarningArrayItem::new_details(Warnings::Warning, msg))
-        }
-    };
-
-    uf::new(Ok(OkWarning {
-        warning: warnings,
-        data: None,
-    }))
+    Ok(cipher_text)
 }
 
-#[allow(unused_variables)]
-fn remove_file(
-    path: Option<String>,
-    mut stream: UnixStream,
-    mut warnings: WarningArray,
-    errors: ErrorArray,
-) -> uf<OkWarning<Option<String>>> {
-    let request_data = RequestRecsSimple {
-        command: dusa_common::Commands::RemoveFile,
-        owner: String::from("system"),
-        name: String::from("lost"),
-        uid: u32::from(geteuid()),
-    };
+/// Decrypts the provided data using AES-256 GCM decryption.
+///
+/// # Arguments
+/// - `encrypted_cipher_data`: A hex-encoded string containing the key, nonce, and ciphertext.
+///
+/// # Returns
+/// - `Ok(Vec<u8>)`: The decrypted plaintext data.
+/// - `Err(ErrorArrayItem)`: An error if decryption fails or if data is malformed (too short).
+pub fn simple_decrypt(encrypted_cipher_data: &[u8]) -> Result<Vec<u8>, ErrorArrayItem> {
+    let encrypted_data: Vec<u8> =
+        hex::decode(encrypted_cipher_data).map_err(ErrorArrayItem::from)?;
 
-    let msg = Message {
-        version: VERSION.to_owned(),
-        msg_type: MessageType::Request,
-        payload: serde_json::to_value(RequestPayload::Simple(request_data)).unwrap(),
-        error: None,
-    };
+    // Extract the key, nonce, and ciphertext
+    if encrypted_data.len() <= KEY_SIZE + NONCE_SIZE {
+        return Err(ErrorArrayItem::new(
+            Errors::InvalidBlockData,
+            "Encrypted data is too short",
+        ));
+    }
 
-    // Communicating with server
-    let _ = send_message(&mut stream, &msg, errors.clone());
-    std::thread::sleep(Duration::from_nanos(100));
-    let response = receive_message(&mut stream, errors.clone()).unwrap();
+    let key = Key::<Aes256Gcm>::from_slice(&encrypted_data[..KEY_SIZE]);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(&encrypted_data[KEY_SIZE..KEY_SIZE + NONCE_SIZE]);
+    let ciphertext = &encrypted_data[KEY_SIZE + NONCE_SIZE..];
 
-    match response.msg_type {
-        MessageType::Response => {
-            let response_data = response.payload;
-
-            // Send an ACK message
-            let ack = Message {
-                version: VERSION.to_owned(),
-                msg_type: MessageType::Acknowledge,
-                payload: serde_json::json!({}),
-                error: None,
-            };
-            send_message(&mut stream, &ack, errors.clone());
-            let _ = receive_message(&mut stream, errors.clone()).unwrap();
-
-            return uf::new(Ok(OkWarning {
-                data: response_data
-                    .get("value")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                warning: warnings,
-            }));
-        }
-        MessageType::ErrorResponse => {
-            return uf::new(Err(errors));
-        }
-        _ => {
-            let msg = String::from("Server responded in an unexpected way, ignoring ...");
-            warnings.push(WarningArrayItem::new_details(Warnings::Warning, msg))
-        }
-    };
-
-    uf::new(Ok(OkWarning {
-        warning: warnings,
-        data: None,
-    }))
+    // Decrypt the data
+    cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|err| ErrorArrayItem::new(Errors::InvalidBlockData, err.to_string()))
 }
-
-fn get_file_path(
-    mut errors: ErrorArray,
-    _warnings: WarningArray,
-    option_path_ref: &PathBuf,
-) -> uf<OkWarning<PathType>> {
-    let err = match option_path_ref.canonicalize() {
-        Ok(d) => {
-            let result = OkWarning {
-                data: PathType::PathBuf(d),
-                warning: _warnings,
-            };
-            return uf::new(Ok(result));
-        }
-        Err(err) => ErrorArrayItem::from(err),
-    };
-    errors.push(err);
-    uf::new(Err(errors))
-}
+// endregion: Modern Encryption/Decryption

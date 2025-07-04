@@ -6,17 +6,21 @@ use std::pin::Pin;
 use std::process::Output;
 
 use colored::Colorize;
+use dusa_collection_utils::core::types::pathtype::PathType;
+use dusa_collection_utils::core::types::stringy::Stringy;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
 use dusa_collection_utils::{
-    errors::{ErrorArrayItem, Errors},
-    functions::{create_hash, truncate},
-    stringy::Stringy,
-    types::PathType,
+    core::errors::{ErrorArrayItem, Errors},
 };
+    
+#[cfg(target_os = "linux")]
+use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
-use crate::encryption::{decrypt_text, encrypt_text};
+    
+use crate::encryption::{simple_decrypt, simple_encrypt};
+// use crate::encryption::{decrypt_text, encrypt_text};
 
 pub const ARTISANCF: &str = "/opt/artisan/artisan.cf";
 
@@ -101,6 +105,7 @@ pub enum GitAction {
     },
 }
 
+#[cfg(target_os = "linux")]
 impl GitCredentials {
     /// Creates a new instance of `GitCredentials` by reading and decrypting the credentials file.
     ///
@@ -111,13 +116,16 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if reading, decrypting, or deserializing fails.
-    pub fn new(file: Option<&PathType>) -> Result<Self, ErrorArrayItem> {
+    pub async fn new(file: Option<&PathType>) -> Result<Self, ErrorArrayItem> {
         match file {
             Some(file) => {
                 if file.exists() {
                     let encrypted_credentials = Self::read_file(file)?;
-                    let decrypted_string = decrypt_text(encrypted_credentials)?.replace('\n', "");
-                    let data: GitCredentials = serde_json::from_str(&decrypted_string)?;
+                    let decrypted_vec: Vec<u8> = simple_decrypt(encrypted_credentials.as_bytes())?;
+                    let decrypted_string: String =
+                        String::from_utf8(decrypted_vec).map_err(ErrorArrayItem::from)?;
+                    let data: GitCredentials =
+                        serde_json::from_str(&decrypted_string.replace('\n', ""))?;
                     Ok(data)
                 } else {
                     Err(ErrorArrayItem::new(
@@ -128,7 +136,9 @@ impl GitCredentials {
             }
             None => {
                 let encrypted_credentials = Self::read_file(&PathType::Str(ARTISANCF.into()))?;
-                let decrypted_string = decrypt_text(encrypted_credentials)?.replace('\n', "");
+                let decrypted_vec: Vec<u8> = simple_decrypt(encrypted_credentials.as_bytes())?;
+                let decrypted_string: String =
+                    String::from_utf8(decrypted_vec).map_err(ErrorArrayItem::from)?;
                 let data: GitCredentials = serde_json::from_str(&decrypted_string)?;
                 Ok(data)
             }
@@ -144,8 +154,8 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if loading the credentials fails.
-    pub fn new_vec(file: Option<&PathType>) -> Result<Vec<GitAuth>, ErrorArrayItem> {
-        let git_credentials = Self::new(file)?;
+    pub async fn new_vec(file: Option<&PathType>) -> Result<Vec<GitAuth>, ErrorArrayItem> {
+        let git_credentials = Self::new(file).await?;
         Ok(git_credentials.auth_items.clone())
     }
 
@@ -163,10 +173,11 @@ impl GitCredentials {
     /// # Errors
     ///
     /// Returns an `ErrorArrayItem` if serialization, encryption, or file writing fails.
-    pub fn save(&self, file_path: &PathType) -> Result<(), ErrorArrayItem> {
-        // Convert PathType to Path
-        let binding = file_path.clone().to_path_buf();
-        let path = binding.as_path();
+    pub async fn save(&self, path: &PathType) -> Result<(), ErrorArrayItem> {
+        // if the array is empty we delete and re-create the empty file
+        if self.clone().to_vec().len() == 0 {
+            path.delete()?;
+        }
 
         // Serialize GitCredentials to JSON
         let json_data = serde_json::to_string(self).map_err(|e| {
@@ -174,9 +185,8 @@ impl GitCredentials {
         })?;
 
         // Encrypt the JSON data
-        let encrypted_data = encrypt_text(Stringy::new(&json_data)).map_err(|e| {
-            ErrorArrayItem::new(Errors::GeneralError, format!("Encryption error: {:?}", e))
-        })?;
+        // let encrypted_data = encrypt_text(Stringy::from(&json_data)).await?;
+        let encrypted_data = simple_encrypt(json_data.as_bytes())?;
 
         // Write the encrypted data to the file
         let mut file = OpenOptions::new()
@@ -229,7 +239,7 @@ impl GitCredentials {
         let mut file = File::open(file_path)?;
         let mut file_contents = String::new();
         file.read_to_string(&mut file_contents)?;
-        Ok(Stringy::new(&file_contents.replace('\n', "")))
+        Ok(Stringy::from(&file_contents.replace('\n', "")))
     }
 
     /// Adds a new `GitAuth` item to the credentials.
@@ -249,9 +259,9 @@ impl GitCredentials {
     ///
     /// # Errors
     ///
-    /// Returns an `ErrorArrayItem` if saving new credentials fails.
-    pub fn bootstrap_git_credentials() -> Result<GitCredentials, ErrorArrayItem> {
-        match GitCredentials::new(None) {
+    /// Can't panic.
+    pub async fn bootstrap_git_credentials() -> Result<GitCredentials, ErrorArrayItem> {
+        match GitCredentials::new(None).await {
             Ok(creds) => Ok(creds),
             Err(_) => {
                 let default_creds = GitCredentials {
@@ -260,6 +270,25 @@ impl GitCredentials {
                 Ok(default_creds)
             }
         }
+    }
+
+    /// Deletes the value at the 'index' in the git credentials array
+    /// The caller is still responsible for saving the array using '.save(&PathType)' after calling
+    pub async fn delete_item(&mut self, index: usize) -> Result<Self, ErrorArrayItem> {
+        let mut vec = self.clone().to_vec();
+
+        let vec_len = vec.len();
+
+        if index > vec_len {
+            return Err(ErrorArrayItem::new(
+                Errors::Git,
+                "The requested value to remove is out of bounds".to_owned(),
+            ));
+        }
+
+        vec.remove(index);
+
+        Ok(GitCredentials { auth_items: vec })
     }
 }
 
@@ -287,12 +316,30 @@ impl GitAuth {
         }
     }
 
+    /// Assembles the SSH Git remote URL based on the provided information.
+    ///
+    /// # Returns
+    ///
+    /// A full Git remote SSH URL string.
+
     /// Generates the ais_id for a given project.
+    pub fn assemble_remote_ssh(&self) -> String {
+        match &self.server {
+            GitServer::GitHub => format!("git@github.com:{}/{}.git", self.user, self.repo),
+            GitServer::GitLab => format!("git@gitlab.com:{}/{}.git", self.user, self.repo),
+            GitServer::Custom(host) => {
+                let host = host.trim_end_matches('/');
+                format!("git@{}:{}/{}.git", host, self.user, self.repo)
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     pub fn generate_id(&self) -> Stringy {
-        Stringy::from(truncate(
-            &create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
+        truncate(
+            &*create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
             8,
-        ))
+        )
     }
 }
 
@@ -658,6 +705,7 @@ async fn execute_git_hash_command(args: &[&str]) -> Result<String, ErrorArrayIte
 /// # Returns
 ///
 /// Returns a `PathType` representing the project path.
+#[cfg(target_os = "linux")]
 pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
     PathType::Content(format!("/var/www/ais/{}", generate_git_project_id(auth)))
 }
@@ -671,10 +719,11 @@ pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
 /// # Returns
 ///
 /// Returns a `Stringy` representing the truncated hash of the project ID.
+#[cfg(target_os = "linux")]
 pub fn generate_git_project_id(auth: &GitAuth) -> Stringy {
     let hash_input = format!("{}-{}-{}", auth.branch, auth.repo, auth.user);
     let hash = create_hash(hash_input);
-    let truncated_hash = truncate(&hash, 8);
+    let truncated_hash = truncate(&*hash, 8);
     truncated_hash.into()
 }
 
@@ -705,7 +754,12 @@ impl fmt::Display for GitAuth {
         writeln!(f, "  {}: {}", "Branch".bold().cyan(), self.branch)?;
         writeln!(f, "  {}: {}", "Server".bold().cyan(), self.server)?;
         if let Some(token) = &self.token {
-            writeln!(f, "  {}: {}", "Token".bold().cyan(), token)?;
+            writeln!(
+                f,
+                "  {}: {}",
+                "Token (Deprecated stop using)".bold().cyan(),
+                token
+            )?;
         } else {
             writeln!(f, "  {}", "Token: None".italic().dimmed())?;
         }

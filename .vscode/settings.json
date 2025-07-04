@@ -1,6 +1,13 @@
 {
     "cSpell.words": [
+        "ARTISANCF",
+        "bitflags",
         "cutime",
-        "Gitserver"
+        "gethostname",
+        "Gitserver",
+        "IDENTITYPATHSTR",
+        "killpg",
+        "SIDEGRADE",
+        "TIMEDOUT"
     ]
 }

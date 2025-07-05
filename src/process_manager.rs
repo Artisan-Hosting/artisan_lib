@@ -5,7 +5,7 @@ use dusa_collection_utils::core::types::rb::RollingBuffer;
 use dusa_collection_utils::core::types::rwarc::LockWithTimeout;
 use dusa_collection_utils::log;
 use libc::{c_int, kill, SIGKILL, SIGTERM};
-use nix::sys::wait::waitpid;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 use std::pin::Pin;
 use std::process::Stdio;
@@ -111,7 +111,7 @@ impl SupervisedProcess {
     /// 4. If any remain after 400ms, sending `SIGKILL`.
     ///
     /// # Errors
-    /// - Returns an I/O error if `kill` or `killpg` fails.
+    /// - Returns an I/O error if any `kill` syscall fails unexpectedly.
     /// - Also returns an error if the process cannot be reaped properly.
     ///
     /// # Why Reap Zombies?
@@ -121,6 +121,7 @@ impl SupervisedProcess {
     pub fn kill(&mut self) -> Result<(), ErrorArrayItem> {
         self.terminate_monitor();
         let xid = self.pid.as_raw();
+        log!(LogLevel::Trace, "Killing supervised pid {}", xid);
 
         kill_pgid_recursive(xid)?;
         Ok(())
@@ -401,8 +402,9 @@ impl ChildLock {
         ChildLock { 0: lock_clone }
     }
 
-    /// Sends a `SIGTERM` to the child’s process group, waits briefly, and
-    /// sends `SIGKILL` if still running. Also reaps zombies by calling `waitpid`.
+    /// Recursively terminates the child's process group. Sends `SIGTERM` to all
+    /// descendant PIDs and then `SIGKILL` to any that remain, logging progress
+    /// at `Trace` level.
     ///
     /// # Errors
     /// - Returns an [`ErrorArrayItem`] on I/O issues or if reaping fails.
@@ -423,6 +425,8 @@ impl ChildLock {
             }
         };
 
+        log!(LogLevel::Trace, "Killing child pid {}", xid);
+
         if let Ok(xid) = xid.try_into() {
             kill_pgid_recursive(xid)?;
             Ok(())
@@ -436,10 +440,26 @@ impl ChildLock {
         unsafe { kill(pid, 0) == 0 }
     }
 
-    /// Reaps the (potential) zombie process. If the process isn't a zombie, `waitpid`
-    /// returns immediately with an error (which we ignore).
+    /// Reaps the (potential) zombie process. If the process isn't a zombie,
+    /// `waitpid` returns immediately with an error which is logged at `Trace`.
     fn reap_zombie_process(pid: c_int) {
-        let _ = waitpid(Pid::from_raw(pid), None);
+        match waitpid(Pid::from_raw(pid), Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::Exited(_, status)) => {
+                log!(LogLevel::Trace, "Reaped pid {} with exit status {}", pid, status)
+            }
+            Ok(WaitStatus::Signaled(_, sig, _)) => {
+                log!(LogLevel::Trace, "Reaped pid {} terminated by signal {:?}", pid, sig)
+            }
+            Ok(WaitStatus::StillAlive) => {
+                log!(LogLevel::Trace, "PID {} still alive when attempting reap", pid)
+            }
+            Ok(status) => {
+                log!(LogLevel::Trace, "PID {} wait status: {:?}", pid, status)
+            }
+            Err(e) => {
+                log!(LogLevel::Trace, "Failed to reap pid {}: {}", pid, e)
+            }
+        }
     }
 }
 
@@ -643,12 +663,20 @@ fn collect_descendants(root_pid: i32) -> Result<HashSet<i32>, ErrorArrayItem> {
 fn kill_pgid_recursive(pgid: i32) -> Result<(), ErrorArrayItem> {
     log!(LogLevel::Trace, "Recursively killing pgid: {}", pgid);
     let pids = collect_descendants(pgid)?;
+    log!(LogLevel::Trace, "Found descendant pids: {:?}", pids);
 
     for pid in &pids {
-        unsafe {
-            kill(*pid, SIGTERM);
+        let res = unsafe { kill(*pid, SIGTERM) };
+        if res == 0 {
+            log!(LogLevel::Trace, "Sent SIGTERM to pid: {}", pid);
+        } else {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ESRCH) {
+                log!(LogLevel::Trace, "PID {} already exited", pid);
+            } else {
+                log!(LogLevel::Warn, "Failed to send SIGTERM to pid {}: {}", pid, err);
+            }
         }
-        log!(LogLevel::Trace, "Sent SIGTERM to pid: {}", pid);
     }
 
     thread::sleep(Duration::from_millis(400));
@@ -657,12 +685,18 @@ fn kill_pgid_recursive(pgid: i32) -> Result<(), ErrorArrayItem> {
         ChildLock::reap_zombie_process(*pid);
         if ChildLock::running(*pid) {
             log!(LogLevel::Warn, "PID {} still running; sending SIGKILL", pid);
-            unsafe {
-                kill(*pid, SIGKILL);
+            let res = unsafe { kill(*pid, SIGKILL) };
+            if res != 0 {
+                let err = io::Error::last_os_error();
+                if err.raw_os_error() != Some(libc::ESRCH) {
+                    return Err(ErrorArrayItem::from(err));
+                }
             }
             ChildLock::reap_zombie_process(*pid);
             if !ChildLock::running(*pid) {
                 log!(LogLevel::Trace, "PID {} terminated", pid);
+            } else {
+                log!(LogLevel::Warn, "PID {} survived SIGKILL", pid);
             }
         } else {
             log!(LogLevel::Trace, "PID {} terminated gracefully", pid);

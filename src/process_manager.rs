@@ -4,13 +4,16 @@ use dusa_collection_utils::core::types::pathtype::PathType;
 use dusa_collection_utils::core::types::rb::RollingBuffer;
 use dusa_collection_utils::core::types::rwarc::LockWithTimeout;
 use dusa_collection_utils::log;
-use libc::{c_int, kill, killpg, SIGKILL, SIGTERM};
+use libc::{c_int, kill, SIGKILL, SIGTERM};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use std::pin::Pin;
 use std::process::Stdio;
 use std::time::Duration;
 use std::{io, thread};
+use std::collections::{HashMap, HashSet, VecDeque};
+
+use procfs::process::{all_processes, Process};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
@@ -103,9 +106,9 @@ impl SupervisedProcess {
 
     /// Terminates the monitored process by:
     /// 1. Stopping any monitoring task.
-    /// 2. Sending a `SIGTERM` to the entire process group (PGID == PID).
-    /// 3. Reaping zombies (via `waitpid`) if the process immediately exits.
-    /// 4. If still running after 400ms, sending `SIGKILL`.
+    /// 2. Recursively sending a `SIGTERM` to all processes in the PGID.
+    /// 3. Reaping zombies (via `waitpid`) if the processes exit.
+    /// 4. If any remain after 400ms, sending `SIGKILL`.
     ///
     /// # Errors
     /// - Returns an I/O error if `kill` or `killpg` fails.
@@ -119,36 +122,8 @@ impl SupervisedProcess {
         self.terminate_monitor();
         let xid = self.pid.as_raw();
 
-        // Kill the entire process group
-        unsafe {
-            // On Linux, setting PGID to the PID in `pre_exec()` ensures all child threads
-            // belong to the same group. This allows group signals.
-            let pgid = xid;
-            killpg(pgid, SIGTERM);
-        };
-
-        // Wait briefly for normal termination
-        thread::sleep(Duration::from_millis(400));
-        Self::reap_zombie_process(xid.try_into().unwrap());
-
-        // Force kill if still running
-        if Self::running(xid) {
-            log!(
-                LogLevel::Warn,
-                "Process with PID: {} did not terminate, sending SIGKILL",
-                xid
-            );
-            unsafe {
-                if kill(xid, SIGKILL) != 0 {
-                    return Err(io::Error::last_os_error().into());
-                }
-                Self::reap_zombie_process(xid);
-                log!(LogLevel::Trace, "Process with PID: {} terminated", xid);
-                Ok(())
-            }
-        } else {
-            Ok(())
-        }
+        kill_pgid_recursive(xid)?;
+        Ok(())
     }
 
     /// Returns `true` if the process is still active (PID exists), or `false` otherwise.
@@ -159,15 +134,6 @@ impl SupervisedProcess {
     /// Checks if a PID is running by sending signal 0.
     pub fn running(pid: c_int) -> bool {
         unsafe { kill(pid, 0) == 0 }
-    }
-
-    /// Reap (wait for) a zombie process, if any, to clean up system resources.
-    ///
-    /// # Note
-    /// - This function calls [`nix::sys::wait::waitpid`] with no options.
-    /// - If there's no zombie, it returns immediately without error.
-    fn reap_zombie_process(pid: c_int) {
-        let _ = waitpid(Pid::from_raw(pid), None);
     }
 
     /// Clones this `SupervisedProcess`, returning a new instance without a running monitor.
@@ -296,8 +262,8 @@ impl SupervisedChild {
         }
     }
 
-    /// Sends a `SIGTERM` to the child’s process group. After a short wait, if the process is still
-    /// running, sends `SIGKILL`. Also reaps any zombie.
+    /// Recursively terminates the child process group. Sends `SIGTERM` to all
+    /// descendant PIDs and then `SIGKILL` to any that remain.
     ///
     /// # Errors
     /// - Returns an [`ErrorArrayItem`] on I/O issues or if reaping fails.
@@ -457,30 +423,8 @@ impl ChildLock {
             }
         };
 
-        // Kill the entire process group
-        unsafe {
-            let pgid = xid; // PGID set to the same as PID in `pre_exec()`.
-            killpg(pgid as i32, SIGTERM);
-            Self::reap_zombie_process(pgid.try_into().unwrap());
-        };
-
-        thread::sleep(Duration::from_millis(200));
-
         if let Ok(xid) = xid.try_into() {
-            if Self::running(xid) {
-                log!(
-                    LogLevel::Warn,
-                    "Process with PID: {} did not terminate, sending SIGKILL",
-                    xid
-                );
-                unsafe {
-                    if kill(xid, SIGKILL) != 0 {
-                        return Err(io::Error::last_os_error().into());
-                    }
-                    Self::reap_zombie_process(xid);
-                    log!(LogLevel::Trace, "Process with PID: {} terminated", xid);
-                }
-            }
+            kill_pgid_recursive(xid)?;
             Ok(())
         } else {
             Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid PID").into())
@@ -661,6 +605,71 @@ pub async fn spawn_complex_process(
             Err(ErrorArrayItem::from(error))
         }
     }
+}
+
+/// Recursively collect all descendant PIDs of a given process ID, including the parent PID.
+fn collect_descendants(root_pid: i32) -> Result<HashSet<i32>, ErrorArrayItem> {
+    let mut children_map: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut result: HashSet<i32> = HashSet::new();
+
+    for prc in all_processes().map_err(|e| ErrorArrayItem::from(io::Error::new(io::ErrorKind::Other, e.to_string())))? {
+        let process: Process = match prc {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if let Ok(stat) = process.stat() {
+            children_map.entry(stat.ppid).or_default().push(process.pid());
+        }
+    }
+
+    let mut queue: VecDeque<i32> = VecDeque::new();
+    queue.push_back(root_pid);
+    result.insert(root_pid);
+
+    while let Some(pid) = queue.pop_front() {
+        if let Some(children) = children_map.get(&pid) {
+            for child in children {
+                if result.insert(*child) {
+                    queue.push_back(*child);
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Kill all processes belonging to a PGID and all of their descendants.
+fn kill_pgid_recursive(pgid: i32) -> Result<(), ErrorArrayItem> {
+    log!(LogLevel::Trace, "Recursively killing pgid: {}", pgid);
+    let pids = collect_descendants(pgid)?;
+
+    for pid in &pids {
+        unsafe {
+            kill(*pid, SIGTERM);
+        }
+        log!(LogLevel::Trace, "Sent SIGTERM to pid: {}", pid);
+    }
+
+    thread::sleep(Duration::from_millis(400));
+
+    for pid in &pids {
+        ChildLock::reap_zombie_process(*pid);
+        if ChildLock::running(*pid) {
+            log!(LogLevel::Warn, "PID {} still running; sending SIGKILL", pid);
+            unsafe {
+                kill(*pid, SIGKILL);
+            }
+            ChildLock::reap_zombie_process(*pid);
+            if !ChildLock::running(*pid) {
+                log!(LogLevel::Trace, "PID {} terminated", pid);
+            }
+        } else {
+            log!(LogLevel::Trace, "PID {} terminated gracefully", pid);
+        }
+    }
+
+    Ok(())
 }
 
 /// Checks if a PID is active on the system by sending signal 0. This is a common method

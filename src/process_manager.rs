@@ -125,11 +125,11 @@ impl SupervisedProcess {
             // belong to the same group. This allows group signals.
             let pgid = xid;
             killpg(pgid, SIGTERM);
-            Self::reap_zombie_process(pgid.try_into().unwrap());
         };
 
         // Wait briefly for normal termination
         thread::sleep(Duration::from_millis(400));
+        Self::reap_zombie_process(xid.try_into().unwrap());
 
         // Force kill if still running
         if Self::running(xid) {
@@ -597,6 +597,7 @@ pub async fn spawn_complex_process(
             })
         };
     } else {
+        command.kill_on_drop(true);
         log!(
             LogLevel::Trace,
             "Complex process being spawned in the same process group"
@@ -616,7 +617,7 @@ pub async fn spawn_complex_process(
     }
 
     match command.spawn() {
-        Ok(child) => {
+        Ok(mut child) => {
             log!(
                 LogLevel::Trace,
                 "Child process spawned successfully: {:#?}",
@@ -636,6 +637,7 @@ pub async fn spawn_complex_process(
             let monitor = match ResourceMonitorLock::new(pid as i32) {
                 Ok(resource_monitor) => resource_monitor,
                 Err(e) => {
+                    child.kill().await?;
                     return Err(ErrorArrayItem::from(io::Error::new(
                         io::ErrorKind::InvalidData,
                         e.to_string(),

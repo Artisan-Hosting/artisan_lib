@@ -1,6 +1,6 @@
 [package]
 name = "artisan_middleware"
-version = "5.5.0"
+version = "5.5.1"
 edition = "2021"
 authors = [
     "Artisan Hosting",

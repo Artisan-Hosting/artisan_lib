@@ -221,6 +221,30 @@ impl fmt::Display for AppState {
             }
         )?;
 
+        writeln!(f, "\nStandart Out: {}", {
+            if !&self.stdout.is_empty() {
+                let mut data = String::new();
+                self.stdout.iter().for_each(|entry| {
+                    data.push_str(&format!("{}\n", entry.1));
+                });
+                data
+            } else {
+                "None".to_string()
+            }
+        })?;
+
+        writeln!(f, "Standart Err: {}", {
+            if !&self.stderr.is_empty() {
+                let mut data = String::new();
+                self.stderr.iter().for_each(|entry| {
+                    data.push_str(&format!("{}\n", entry.1));
+                });
+                data
+            } else {
+                "None".to_string()
+            }
+        })?;
+
         Ok(())
     }
 }

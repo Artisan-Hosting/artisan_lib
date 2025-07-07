@@ -280,10 +280,11 @@ impl Identifier {
     pub fn save_to_file(&self) -> Result<(), ErrorArrayItem> {
         let serialized_id = serde_json::to_string_pretty(&self)?;
         let mut file = std::fs::File::create(PathType::Str(IDENTITYPATHSTR.into()))?;
+        let mut flag = std::fs::File::create(PathType::Str("/opt/artisan/.system_ready".into()))?;
         file.write_all(serialized_id.as_bytes())?;
+        flag.write_all(serialized_id.as_bytes())?;
         Ok(())
     }
-
     /// Loads an `Identifier` from the file at [`IDENTITYPATHSTR`].
     ///
     /// # Returns

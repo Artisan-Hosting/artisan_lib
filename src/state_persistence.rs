@@ -331,7 +331,7 @@ pub async fn update_state(state: &mut AppState, path: &PathType, _metrics: Optio
         ));
     }
 
-    log!(LogLevel::Debug, "State Updated");
+    log!(LogLevel::Trace, "State Updated");
 }
 
 /// Performs final updates to the [`AppState`] before application shutdown.  

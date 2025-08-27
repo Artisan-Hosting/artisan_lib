@@ -32,7 +32,6 @@ base64 = "0.22.1"
 hex = "0.4.3"
 rand = "0.8.5"
 lz4 = "1.28.1"
-toml = "0.8.19"
 config = "0.13.3"
 
 # Serialization/deserialization

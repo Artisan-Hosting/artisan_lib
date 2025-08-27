@@ -27,7 +27,7 @@ mod tests {
         };
 
         let dir = tempdir().unwrap();
-        let path: PathType = dir.path().join("state.toml").into();
+        let path: PathType = dir.path().join("state.json").into();
 
         StatePersistence::save_state(&state, &path).await.unwrap();
 
@@ -37,7 +37,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_nonexistent_file() {
-        let path: PathType = "/tmp/nonexistent_state.toml".into();
+        let path: PathType = "/tmp/nonexistent_state.json".into();
         let result = StatePersistence::load_state(&path).await;
         assert!(result.is_err());
     }

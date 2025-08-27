@@ -135,7 +135,7 @@ let decrypted = decrypt_text(encrypted)?;
    - Use `StatePersistence` to maintain the state of your application.
    - This is useful to avoid redundant operations (e.g., pulling updates that have already been fetched).
 
-4. **Example Application Flow**:
+ 4. **Example Application Flow**:
 
    ```rust
    use artisan_middleware::config::AppConfig;
@@ -169,6 +169,24 @@ let decrypted = decrypt_text(encrypted)?;
        Ok(())
    }
    ```
+
+## Language Bindings
+
+The core types used for inter-process communication—`AppConfig`, `AppState`,
+and the `StatePersistence` helpers—are also available in other languages. This
+repository provides lightweight libraries to work with the same data structures
+in **C**, **Python**, and **Go** under the [`bindings`](bindings) directory.
+
+These bindings offer simple JSON or text based serialization so runners written
+in different languages can exchange state information with the Rust
+implementation.
+
+* `bindings/python/state_persistence.py` – Python dataclasses and helpers.
+* `bindings/go/statepersistence` – Go structs with load/save functions.
+* `bindings/c` – C header and source with minimal serialization routines.
+
+These modules are intentionally small and dependency free to serve as a starting
+point for building runners in other languages.
 
 ## How to Contribute
 

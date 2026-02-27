@@ -91,6 +91,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_supervised_child_stdx_monitor_does_not_stop_resource_monitor() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("while :; do :; done");
+        let mut supervised_child = SupervisedChild::new(&mut cmd, None)
+            .await
+            .expect("Failed to spawn supervised child");
+
+        supervised_child.monitor_usage().await;
+        assert!(
+            supervised_child.monitoring(),
+            "Resource monitor should be running"
+        );
+
+        supervised_child.monitor_stdx().await;
+        assert!(
+            supervised_child.monitoring(),
+            "Resource monitor should still be running after starting stdx monitor"
+        );
+        assert!(
+            supervised_child.monitoring_stdx(),
+            "Stdx monitor should be running"
+        );
+
+        supervised_child.terminate_stdx();
+        assert!(
+            !supervised_child.monitoring_stdx(),
+            "Stdx monitor should be stoppable"
+        );
+
+        supervised_child.kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_supervised_child_watchdogs_attach_and_start() {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("2");
+        let mut supervised_child = SupervisedChild::new(&mut cmd, None)
+            .await
+            .expect("Failed to spawn supervised child");
+
+        let initial_resource = supervised_child.resource_watchdog_snapshot();
+        let initial_stdx = supervised_child.stdx_watchdog_snapshot();
+        assert_eq!(initial_resource.start_count, 0);
+        assert_eq!(initial_stdx.start_count, 0);
+
+        supervised_child.monitor_usage().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let resource = supervised_child.resource_watchdog_snapshot();
+        assert!(
+            resource.start_count >= 1,
+            "resource watchdog should be attached and started"
+        );
+        assert!(
+            supervised_child.resource_monitor_valid(Duration::from_secs(5), 10),
+            "resource watchdog should report monitor as valid"
+        );
+
+        supervised_child.monitor_stdx().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let stdx = supervised_child.stdx_watchdog_snapshot();
+        assert!(
+            stdx.start_count >= 1,
+            "stdx watchdog should be attached and started"
+        );
+        assert!(
+            supervised_child.stdx_monitor_valid(Duration::from_secs(5), 10),
+            "stdx watchdog should report monitor as valid"
+        );
+
+        supervised_child.kill().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn test_supervised_process_with_invalid_pid() {
         // Use a PID that's likely not valid
         let invalid_pid = 999999;

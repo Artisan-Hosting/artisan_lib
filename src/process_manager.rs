@@ -7,11 +7,11 @@ use dusa_collection_utils::log;
 use libc::{c_int, kill, SIGKILL, SIGTERM};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::time::Duration;
 use std::{io, thread};
-use std::collections::{HashMap, HashSet, VecDeque};
 
 use procfs::process::{all_processes, Process};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -19,7 +19,7 @@ use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
 
 use crate::aggregator::Metrics;
-use crate::resource_monitor::ResourceMonitorLock;
+use crate::resource_monitor::{MonitorWatchdog, MonitorWatchdogSnapshot, ResourceMonitorLock};
 use crate::state_persistence::{log_error, update_state, AppState};
 /// A wrapper around [`LockWithTimeout<Child>`] that synchronizes access to a
 /// [`tokio::process::Child`]. This allows safe concurrent reads/writes or attempts to kill
@@ -31,8 +31,9 @@ pub struct ChildLock(pub LockWithTimeout<Child>);
 /// asynchronous context (Tokio).
 ///
 /// - The `monitor_handle` can be used to stop the resource monitor loop if needed.
-/// - The `monitor_std ` is used to monitor the standard outputs of the application.
-/// It's up to the caller to decide if / how to store and use these outputs
+/// - The `monitor_std` handle is used to monitor the process standard output/error streams.
+/// - Lock-free watchdog snapshots expose monitor health without requiring access to task handles.
+/// - It's up to the caller to decide if/how to store and use captured output lines.
 /// - The resource monitor tracks CPU/memory usage via `/proc` (Linux-specific).
 pub struct SupervisedChild {
     /// The locked child process.
@@ -47,6 +48,10 @@ pub struct SupervisedChild {
     stdout_buffer: LockWithTimeout<RollingBuffer>,
     /// Internal tracker for standard err
     stderr_buffer: LockWithTimeout<RollingBuffer>,
+    /// Health/heartbeat state for the resource monitor loop.
+    resource_watchdog: MonitorWatchdog,
+    /// Health/heartbeat state for the stdout/stderr monitor loop.
+    stdx_watchdog: MonitorWatchdog,
 }
 
 /// Represents a supervised process that may not have been spawned via [`tokio::process::Command`]
@@ -59,6 +64,8 @@ pub struct SupervisedProcess {
     pub monitor: ResourceMonitorLock,
     /// An optional background task handle for continuous resource monitoring.
     monitor_handle: Option<JoinHandle<()>>,
+    /// Health/heartbeat state for the resource monitor loop.
+    resource_watchdog: MonitorWatchdog,
 }
 
 impl SupervisedProcess {
@@ -82,6 +89,7 @@ impl SupervisedProcess {
                 pid,
                 monitor: ResourceMonitorLock::new(pid.as_raw())?,
                 monitor_handle: None,
+                resource_watchdog: MonitorWatchdog::new(),
             })
         } else {
             None
@@ -147,6 +155,7 @@ impl SupervisedProcess {
             pid: self.pid,
             monitor: monitor_lock,
             monitor_handle: None,
+            resource_watchdog: self.resource_watchdog.clone(),
         }
     }
 
@@ -156,13 +165,27 @@ impl SupervisedProcess {
     ///
     /// # Note
     /// - This loop is attached to `monitor_handle`. Re-run this method only if `monitor_handle`
-    ///   is `None`, to avoid multiple concurrent monitors on the same process.
+    ///   is `None` or the previous monitor task has already finished.
+    /// - A watchdog is updated on each loop iteration for out-of-band health checks.
     pub async fn monitor_usage(&mut self) {
-        if self.monitor_handle.is_none() {
-            let d0: &ResourceMonitorLock = &self.monitor.clone();
-            let handle: JoinHandle<()> = d0.monitor(2).await; // 2-second interval
-            self.monitor_handle = Some(handle)
+        if let Some(handle) = &self.monitor_handle {
+            if handle.is_finished() {
+                log!(
+                    LogLevel::Warn,
+                    "Resource monitor task finished unexpectedly for pid {}, restarting",
+                    self.pid
+                );
+                self.monitor_handle = None;
+            } else {
+                return;
+            }
         }
+
+        let d0: &ResourceMonitorLock = &self.monitor.clone();
+        let handle: JoinHandle<()> = d0
+            .monitor_with_watchdog(2, Some(self.resource_watchdog.clone()))
+            .await; // 2-second interval
+        self.monitor_handle = Some(handle)
     }
 
     /// Terminates the resource monitor task, if any.
@@ -174,6 +197,7 @@ impl SupervisedProcess {
             log!(LogLevel::Trace, "Terminating monitor");
             handle.abort();
             self.monitor_handle = None;
+            self.resource_watchdog.mark_stopped();
         }
     }
 
@@ -182,6 +206,8 @@ impl SupervisedProcess {
     pub fn monitoring(&mut self) -> bool {
         if let Some(handle) = &self.monitor_handle {
             if handle.is_finished() {
+                self.monitor_handle = None;
+                self.resource_watchdog.mark_stopped();
                 false
             } else {
                 true
@@ -199,6 +225,22 @@ impl SupervisedProcess {
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
         self.monitor.get_metrics().await
     }
+
+    /// Returns a lock-free watchdog snapshot for the resource monitor.
+    pub fn resource_watchdog_snapshot(&self) -> MonitorWatchdogSnapshot {
+        self.resource_watchdog.snapshot()
+    }
+
+    /// Returns whether the resource monitor appears healthy.
+    pub fn resource_monitor_valid(
+        &self,
+        max_staleness: Duration,
+        max_consecutive_failures: u64,
+    ) -> bool {
+        self.resource_watchdog
+            .snapshot()
+            .is_valid(max_staleness, max_consecutive_failures)
+    }
 }
 
 impl SupervisedChild {
@@ -207,6 +249,7 @@ impl SupervisedChild {
     /// - Locking for the child handle
     /// - A resource monitor
     /// - Optional background monitoring
+    /// - Initialized resource/stdx watchdogs
     ///
     /// # Behavior
     /// - Uses [`spawn_complex_process`] under the hood.
@@ -220,15 +263,7 @@ impl SupervisedChild {
         command: &mut Command,
         working_dir: Option<PathType>,
     ) -> Result<Self, ErrorArrayItem> {
-        let child = spawn_complex_process(command, working_dir, false, true).await?; // ! set process group back to false
-        Ok(Self {
-            child: child.child,
-            monitor: child.monitor,
-            monitor_handle: child.monitor_handle,
-            monitor_std: child.monitor_std,
-            stdout_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
-            stderr_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
-        })
+        spawn_complex_process(command, working_dir, false, true).await // ! set process group back to false
     }
 
     /// Returns the process ID (`PID`) of the child, if available. If locked, tries for a
@@ -245,8 +280,10 @@ impl SupervisedChild {
         }
     }
 
-    /// Clones this `SupervisedChild` without a running monitor.  Restarts the monitors to get around clonning limits
-    /// then duplicates the resource monitor and child lock.
+    /// Clones this `SupervisedChild` without active monitor tasks.
+    ///
+    /// This aborts current monitor tasks, then clones the child lock, resource monitor lock,
+    /// buffers, and watchdog state.
     pub async fn clone(&mut self) -> Self {
         self.terminate_monitor();
         self.terminate_stdx();
@@ -260,6 +297,8 @@ impl SupervisedChild {
             monitor_std: None,
             stdout_buffer: self.stdout_buffer.clone(),
             stderr_buffer: self.stderr_buffer.clone(),
+            resource_watchdog: self.resource_watchdog.clone(),
+            stdx_watchdog: self.stdx_watchdog.clone(),
         }
     }
 
@@ -290,11 +329,42 @@ impl SupervisedChild {
     /// # Behavior
     /// - Queries `/proc/<pid>` for CPU, memory, etc. every 2 seconds.
     /// - Use [`terminate_monitor`] to stop the task.
+    /// - A watchdog is updated on each loop iteration for out-of-band health checks.
     pub async fn monitor_usage(&mut self) {
-        if self.monitor_handle.is_none() {
-            let d0: &ResourceMonitorLock = &self.clone().await.monitor;
-            let handle: JoinHandle<()> = d0.monitor(2).await;
-            self.monitor_handle = Some(handle)
+        if let Some(handle) = &self.monitor_handle {
+            if handle.is_finished() {
+                log!(
+                    LogLevel::Warn,
+                    "Resource monitor task finished unexpectedly for child pid {:?}, restarting",
+                    self.get_pid().await.ok()
+                );
+                self.monitor_handle = None;
+            } else {
+                return;
+            }
+        }
+
+        let d0: &ResourceMonitorLock = &self.monitor.clone();
+        let handle: JoinHandle<()> = d0
+            .monitor_with_watchdog(2, Some(self.resource_watchdog.clone()))
+            .await;
+        self.monitor_handle = Some(handle)
+    }
+
+    /// Returns whether the child resource monitor task is currently running.
+    ///
+    /// If the handle exists but has finished, it is cleared and `false` is returned.
+    pub fn monitoring(&mut self) -> bool {
+        if let Some(handle) = &self.monitor_handle {
+            if handle.is_finished() {
+                self.monitor_handle = None;
+                self.resource_watchdog.mark_stopped();
+                false
+            } else {
+                true
+            }
+        } else {
+            false
         }
     }
 
@@ -302,30 +372,59 @@ impl SupervisedChild {
     /// already running, this does nothing.
     ///
     /// # Behavior
-    /// - Undocumentd.
-    /// - Use [`terminate_monitor`] to stop the task.
+    /// - Acquires the child lock, takes stdout/stderr handles, and streams lines into rolling buffers.
+    /// - Retries on transient lock errors instead of exiting permanently.
+    /// - Use [`terminate_stdx`] to stop the task.
     pub async fn monitor_stdx(&mut self) {
-        if self.monitor_std.is_some() {
-            return;
+        if let Some(handle) = &self.monitor_std {
+            if handle.is_finished() {
+                log!(
+                    LogLevel::Warn,
+                    "Stdout/stderr monitor finished unexpectedly for child pid {:?}, restarting",
+                    self.get_pid().await.ok()
+                );
+                self.monitor_std = None;
+            } else {
+                return;
+            }
         }
 
-        let mut sup_child: SupervisedChild = self.clone().await;
+        let child_lock = self.child.clone();
+        let stdout_buffer = self.stdout_buffer.clone();
+        let stderr_buffer = self.stderr_buffer.clone();
+        let stdx_watchdog = self.stdx_watchdog.clone();
 
         let monitor_handle = tokio::spawn(async move {
             let mut stdout_task = None;
             let mut stderr_task = None;
+            stdx_watchdog.mark_started();
 
-            if let Ok(mut child) = sup_child.child.0.try_write().await {
-                if let Some(stdout) = child.stdout.take() {
-                    let reader = Box::pin(stdout) as Pin<Box<dyn AsyncRead + Send>>;
-                    let buffer = sup_child.stdout_buffer.clone();
-                    stdout_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
-                }
+            loop {
+                match child_lock.0.try_write().await {
+                    Ok(mut child) => {
+                        if let Some(stdout) = child.stdout.take() {
+                            let reader = Box::pin(stdout) as Pin<Box<dyn AsyncRead + Send>>;
+                            let buffer = stdout_buffer.clone();
+                            stdout_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
+                        }
 
-                if let Some(stderr) = child.stderr.take() {
-                    let reader = Box::pin(stderr) as Pin<Box<dyn AsyncRead + Send>>;
-                    let buffer = sup_child.stderr_buffer.clone();
-                    stderr_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
+                        if let Some(stderr) = child.stderr.take() {
+                            let reader = Box::pin(stderr) as Pin<Box<dyn AsyncRead + Send>>;
+                            let buffer = stderr_buffer.clone();
+                            stderr_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
+                        }
+                        stdx_watchdog.record_success();
+                        break;
+                    }
+                    Err(err) => {
+                        log!(
+                            LogLevel::Warn,
+                            "Failed locking child for stdio monitor: {}",
+                            err
+                        );
+                        stdx_watchdog.record_failure();
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                    }
                 }
             }
 
@@ -335,18 +434,36 @@ impl SupervisedChild {
             if let Some(task) = stderr_task {
                 let _ = task.await;
             }
+            stdx_watchdog.mark_stopped();
         });
 
-        sup_child.monitor_std = Some(monitor_handle)
+        self.monitor_std = Some(monitor_handle)
     }
 
-    /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
+    /// Returns whether the child stdout/stderr monitor task is currently running.
+    ///
+    /// If the handle exists but has finished, it is cleared and `false` is returned.
+    pub fn monitoring_stdx(&mut self) -> bool {
+        if let Some(handle) = &self.monitor_std {
+            if handle.is_finished() {
+                self.monitor_std = None;
+                self.stdx_watchdog.mark_stopped();
+                false
+            } else {
+                true
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Gets the current value of the standard output [`RollingBuffer`] as `Vec<(timestamp, line)>`.
     pub async fn get_std_out(&self) -> Result<Vec<(u64, String)>, ErrorArrayItem> {
         let rb = self.stdout_buffer.try_read().await?;
         Ok(rb.get_latest_time())
     }
 
-    /// Gets the current value of the standart output [`RollingBuffer`] as a Vec<String>
+    /// Gets the current value of the standard error [`RollingBuffer`] as `Vec<(timestamp, line)>`.
     pub async fn get_std_err(&self) -> Result<Vec<(u64, String)>, ErrorArrayItem> {
         let rb = self.stderr_buffer.try_read().await?;
         Ok(rb.get_latest_time())
@@ -359,16 +476,18 @@ impl SupervisedChild {
             log!(LogLevel::Trace, "Terminating monitor");
             handle.abort();
             self.monitor_handle = None;
+            self.resource_watchdog.mark_stopped();
         }
     }
 
-    /// Terminates the resource monitor task, if any is currently running. This calls
+    /// Terminates the stdout/stderr monitor task, if currently running. This calls
     /// [`JoinHandle::abort()`] on the stored handle.
     pub fn terminate_stdx(&mut self) {
         if let Some(handle) = &self.monitor_std {
             log!(LogLevel::Trace, "Terminating Standart X monitor");
             handle.abort();
-            self.monitor_handle = None;
+            self.monitor_std = None;
+            self.stdx_watchdog.mark_stopped();
         }
     }
 
@@ -376,6 +495,38 @@ impl SupervisedChild {
     /// Returns an error if the process has exited or if `/proc` parsing fails.
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
         self.monitor.get_metrics().await
+    }
+
+    /// Returns a lock-free watchdog snapshot for the child resource monitor.
+    pub fn resource_watchdog_snapshot(&self) -> MonitorWatchdogSnapshot {
+        self.resource_watchdog.snapshot()
+    }
+
+    /// Returns a lock-free watchdog snapshot for the child stdout/stderr monitor.
+    pub fn stdx_watchdog_snapshot(&self) -> MonitorWatchdogSnapshot {
+        self.stdx_watchdog.snapshot()
+    }
+
+    /// Returns whether the child resource monitor appears healthy.
+    pub fn resource_monitor_valid(
+        &self,
+        max_staleness: Duration,
+        max_consecutive_failures: u64,
+    ) -> bool {
+        self.resource_watchdog
+            .snapshot()
+            .is_valid(max_staleness, max_consecutive_failures)
+    }
+
+    /// Returns whether the child stdout/stderr monitor appears healthy.
+    pub fn stdx_monitor_valid(
+        &self,
+        max_staleness: Duration,
+        max_consecutive_failures: u64,
+    ) -> bool {
+        self.stdx_watchdog
+            .snapshot()
+            .is_valid(max_staleness, max_consecutive_failures)
     }
 }
 
@@ -445,13 +596,27 @@ impl ChildLock {
     fn reap_zombie_process(pid: c_int) {
         match waitpid(Pid::from_raw(pid), Some(WaitPidFlag::WNOHANG)) {
             Ok(WaitStatus::Exited(_, status)) => {
-                log!(LogLevel::Trace, "Reaped pid {} with exit status {}", pid, status)
+                log!(
+                    LogLevel::Trace,
+                    "Reaped pid {} with exit status {}",
+                    pid,
+                    status
+                )
             }
             Ok(WaitStatus::Signaled(_, sig, _)) => {
-                log!(LogLevel::Trace, "Reaped pid {} terminated by signal {:?}", pid, sig)
+                log!(
+                    LogLevel::Trace,
+                    "Reaped pid {} terminated by signal {:?}",
+                    pid,
+                    sig
+                )
             }
             Ok(WaitStatus::StillAlive) => {
-                log!(LogLevel::Trace, "PID {} still alive when attempting reap", pid)
+                log!(
+                    LogLevel::Trace,
+                    "PID {} still alive when attempting reap",
+                    pid
+                )
             }
             Ok(status) => {
                 log!(LogLevel::Trace, "PID {} wait status: {:?}", pid, status)
@@ -527,7 +692,7 @@ pub async fn spawn_simple_process(
 /// - Optionally sets its own process group (via `setsid()` in a `pre_exec` hook),
 /// - Optionally captures stdout/stderr,
 /// - Initializes resource monitoring in [`ResourceMonitorLock`],
-/// - Wraps the process in a [`SupervisedChild`].
+/// - Wraps the process in a [`SupervisedChild`] with initialized watchdogs.
 ///
 /// # Arguments
 /// * `command` - The [`Command`] to spawn.
@@ -536,7 +701,7 @@ pub async fn spawn_simple_process(
 /// * `capture_output` - If `true`, captures stdout/stderr; otherwise inherits them.
 ///
 /// # Returns
-/// - `Ok(SupervisedChild)` containing the locked child process and resource monitor.
+/// - `Ok(SupervisedChild)` containing the locked child process, resource monitor, and watchdogs.
 /// - `Err(ErrorArrayItem)` if there's an error spawning the child or initializing the monitor.
 ///
 /// # Platform Details
@@ -605,7 +770,7 @@ pub async fn spawn_complex_process(
                     return Err(ErrorArrayItem::from(io::Error::new(
                         io::ErrorKind::InvalidData,
                         e.to_string(),
-                    )))
+                    )));
                 }
             };
 
@@ -618,6 +783,8 @@ pub async fn spawn_complex_process(
                 monitor_std: None,
                 stdout_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
                 stderr_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
+                resource_watchdog: MonitorWatchdog::new(),
+                stdx_watchdog: MonitorWatchdog::new(),
             })
         }
         Err(error) => {
@@ -632,13 +799,18 @@ fn collect_descendants(root_pid: i32) -> Result<HashSet<i32>, ErrorArrayItem> {
     let mut children_map: HashMap<i32, Vec<i32>> = HashMap::new();
     let mut result: HashSet<i32> = HashSet::new();
 
-    for prc in all_processes().map_err(|e| ErrorArrayItem::from(io::Error::new(io::ErrorKind::Other, e.to_string())))? {
+    for prc in all_processes()
+        .map_err(|e| ErrorArrayItem::from(io::Error::new(io::ErrorKind::Other, e.to_string())))?
+    {
         let process: Process = match prc {
             Ok(p) => p,
             Err(_) => continue,
         };
         if let Ok(stat) = process.stat() {
-            children_map.entry(stat.ppid).or_default().push(process.pid());
+            children_map
+                .entry(stat.ppid)
+                .or_default()
+                .push(process.pid());
         }
     }
 
@@ -674,7 +846,12 @@ fn kill_pgid_recursive(pgid: i32) -> Result<(), ErrorArrayItem> {
             if err.raw_os_error() == Some(libc::ESRCH) {
                 log!(LogLevel::Trace, "PID {} already exited", pid);
             } else {
-                log!(LogLevel::Warn, "Failed to send SIGTERM to pid {}: {}", pid, err);
+                log!(
+                    LogLevel::Warn,
+                    "Failed to send SIGTERM to pid {}: {}",
+                    pid,
+                    err
+                );
             }
         }
     }
@@ -753,8 +930,9 @@ where
         match reader.read_buf(&mut buf).await {
             Ok(n) if n == 0 => break, // EOF
             Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => {
-                eprintln!("Read error: {}", e);
+                log!(LogLevel::Warn, "Read error in stdio monitor: {}", e);
                 break;
             }
         };

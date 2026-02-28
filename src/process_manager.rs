@@ -185,8 +185,11 @@ impl SupervisedProcess {
 
         let d0: &ResourceMonitorLock = &self.monitor.clone();
         let handle: JoinHandle<()> = d0
-            .monitor_with_watchdog(2, Some(self.resource_watchdog.clone()))
-            .await; // 2-second interval
+            .monitor_with_watchdog_interval(
+                RESOURCE_MONITOR_SAMPLE_INTERVAL,
+                Some(self.resource_watchdog.clone()),
+            )
+            .await;
         self.monitor_handle = Some(handle)
     }
 
@@ -348,7 +351,10 @@ impl SupervisedChild {
 
         let d0: &ResourceMonitorLock = &self.monitor.clone();
         let handle: JoinHandle<()> = d0
-            .monitor_with_watchdog(2, Some(self.resource_watchdog.clone()))
+            .monitor_with_watchdog_interval(
+                RESOURCE_MONITOR_SAMPLE_INTERVAL,
+                Some(self.resource_watchdog.clone()),
+            )
             .await;
         self.monitor_handle = Some(handle)
     }
@@ -407,13 +413,21 @@ impl SupervisedChild {
                         if let Some(stdout) = child.stdout.take() {
                             let reader = Box::pin(stdout) as Pin<Box<dyn AsyncRead + Send>>;
                             let buffer = stdout_buffer.clone();
-                            stdout_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
+                            stdout_task = Some(tokio::spawn(read_stream_to_buffer(
+                                reader,
+                                buffer,
+                                STDX_BUFFER_UPDATE_INTERVAL,
+                            )));
                         }
 
                         if let Some(stderr) = child.stderr.take() {
                             let reader = Box::pin(stderr) as Pin<Box<dyn AsyncRead + Send>>;
                             let buffer = stderr_buffer.clone();
-                            stderr_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
+                            stderr_task = Some(tokio::spawn(read_stream_to_buffer(
+                                reader,
+                                buffer,
+                                STDX_BUFFER_UPDATE_INTERVAL,
+                            )));
                         }
                         stdx_watchdog.record_success();
                         break;
@@ -949,13 +963,12 @@ async fn read_stream_to_buffer<R>(
     let mut last_flush = std::time::Instant::now();
 
     loop {
-        match reader.read_buf(&mut buf).await {
-            Ok(n) if n == 0 => break, // EOF
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => {
-                log!(LogLevel::Warn, "Read error in stdio monitor: {}", e);
-                break;
+        let remaining_until_flush = flush_interval.saturating_sub(last_flush.elapsed());
+        match tokio::time::timeout(remaining_until_flush, reader.read_buf(&mut buf)).await {
+            Err(_) => {
+                flush_lines_to_buffer(&buffer, &mut pending_lines).await;
+                last_flush = std::time::Instant::now();
+                continue;
             }
             Ok(result) => match result {
                 Ok(n) if n == 0 => break, // EOF
@@ -968,14 +981,13 @@ async fn read_stream_to_buffer<R>(
             },
         };
 
-        if let Ok(chunk) = std::str::from_utf8(&buf) {
-            partial.push_str(chunk);
+        let chunk = String::from_utf8_lossy(&buf);
+        partial.push_str(&chunk);
 
-            while let Some(pos) = partial.find('\n') {
-                let line = partial[..pos].to_string();
-                pending_lines.push(line);
-                partial.drain(..=pos); // remove up to and including newline
-            }
+        while let Some(pos) = partial.find('\n') {
+            let line = partial[..pos].to_string();
+            pending_lines.push(line);
+            partial.drain(..=pos); // remove up to and including newline
         }
 
         buf.clear();

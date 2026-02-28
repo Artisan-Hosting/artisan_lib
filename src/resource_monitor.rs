@@ -195,7 +195,12 @@ impl ResourceMonitorLock {
     /// - Attempts to acquire a write lock on the monitor every `delay` seconds.
     /// - If locking or sampling fails, it logs and retries on the next interval.
     pub async fn monitor(&self, delay: u64) -> JoinHandle<()> {
-        self.monitor_with_watchdog(delay, None).await
+        self.monitor_interval(Duration::from_secs(delay)).await
+    }
+
+    /// Same as [`monitor`], but accepts a full [`Duration`] for sub-second sampling.
+    pub async fn monitor_interval(&self, delay: Duration) -> JoinHandle<()> {
+        self.monitor_with_watchdog_interval(delay, None).await
     }
 
     /// Same as [`monitor`], but also updates a watchdog snapshot for callers that need
@@ -203,6 +208,17 @@ impl ResourceMonitorLock {
     pub async fn monitor_with_watchdog(
         &self,
         delay: u64,
+        watchdog: Option<MonitorWatchdog>,
+    ) -> JoinHandle<()> {
+        self.monitor_with_watchdog_interval(Duration::from_secs(delay), watchdog)
+            .await
+    }
+
+    /// Same as [`monitor_with_watchdog`], but accepts a full [`Duration`] for
+    /// sub-second sampling.
+    pub async fn monitor_with_watchdog_interval(
+        &self,
+        delay: Duration,
         watchdog: Option<MonitorWatchdog>,
     ) -> JoinHandle<()> {
         let monitor_lock = self.clone();
@@ -230,7 +246,7 @@ impl ResourceMonitorLock {
                         }
                     }
                 }
-                sleep(Duration::from_secs(delay)).await;
+                sleep(delay).await;
             }
         })
     }

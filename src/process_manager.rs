@@ -185,11 +185,8 @@ impl SupervisedProcess {
 
         let d0: &ResourceMonitorLock = &self.monitor.clone();
         let handle: JoinHandle<()> = d0
-            .monitor_with_watchdog_interval(
-                RESOURCE_MONITOR_SAMPLE_INTERVAL,
-                Some(self.resource_watchdog.clone()),
-            )
-            .await;
+            .monitor_with_watchdog(2, Some(self.resource_watchdog.clone()))
+            .await; // 2-second interval
         self.monitor_handle = Some(handle)
     }
 
@@ -351,10 +348,7 @@ impl SupervisedChild {
 
         let d0: &ResourceMonitorLock = &self.monitor.clone();
         let handle: JoinHandle<()> = d0
-            .monitor_with_watchdog_interval(
-                RESOURCE_MONITOR_SAMPLE_INTERVAL,
-                Some(self.resource_watchdog.clone()),
-            )
+            .monitor_with_watchdog(2, Some(self.resource_watchdog.clone()))
             .await;
         self.monitor_handle = Some(handle)
     }
@@ -413,21 +407,13 @@ impl SupervisedChild {
                         if let Some(stdout) = child.stdout.take() {
                             let reader = Box::pin(stdout) as Pin<Box<dyn AsyncRead + Send>>;
                             let buffer = stdout_buffer.clone();
-                            stdout_task = Some(tokio::spawn(read_stream_to_buffer(
-                                reader,
-                                buffer,
-                                STDX_BUFFER_UPDATE_INTERVAL,
-                            )));
+                            stdout_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
                         }
 
                         if let Some(stderr) = child.stderr.take() {
                             let reader = Box::pin(stderr) as Pin<Box<dyn AsyncRead + Send>>;
                             let buffer = stderr_buffer.clone();
-                            stderr_task = Some(tokio::spawn(read_stream_to_buffer(
-                                reader,
-                                buffer,
-                                STDX_BUFFER_UPDATE_INTERVAL,
-                            )));
+                            stderr_task = Some(tokio::spawn(read_stream_to_buffer(reader, buffer)));
                         }
                         stdx_watchdog.record_success();
                         break;
@@ -439,7 +425,7 @@ impl SupervisedChild {
                             err
                         );
                         stdx_watchdog.record_failure();
-                        tokio::time::sleep(STDX_BUFFER_UPDATE_INTERVAL).await;
+                        tokio::time::sleep(Duration::from_millis(250)).await;
                     }
                 }
             }
@@ -963,12 +949,13 @@ async fn read_stream_to_buffer<R>(
     let mut last_flush = std::time::Instant::now();
 
     loop {
-        let remaining_until_flush = flush_interval.saturating_sub(last_flush.elapsed());
-        match tokio::time::timeout(remaining_until_flush, reader.read_buf(&mut buf)).await {
-            Err(_) => {
-                flush_lines_to_buffer(&buffer, &mut pending_lines).await;
-                last_flush = std::time::Instant::now();
-                continue;
+        match reader.read_buf(&mut buf).await {
+            Ok(n) if n == 0 => break, // EOF
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                log!(LogLevel::Warn, "Read error in stdio monitor: {}", e);
+                break;
             }
             Ok(result) => match result {
                 Ok(n) if n == 0 => break, // EOF

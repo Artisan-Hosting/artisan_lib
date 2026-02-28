@@ -230,7 +230,7 @@ impl ResourceMonitorLock {
                         }
                     }
                 }
-                sleep(Duration::from_secs(delay)).await;
+                sleep(delay).await;
             }
         })
     }

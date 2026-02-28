@@ -21,6 +21,9 @@ use tokio::task::JoinHandle;
 use crate::aggregator::Metrics;
 use crate::resource_monitor::{MonitorWatchdog, MonitorWatchdogSnapshot, ResourceMonitorLock};
 use crate::state_persistence::{log_error, update_state, AppState};
+
+const RESOURCE_MONITOR_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+const STDX_BUFFER_UPDATE_INTERVAL: Duration = Duration::from_millis(500);
 /// A wrapper around [`LockWithTimeout<Child>`] that synchronizes access to a
 /// [`tokio::process::Child`]. This allows safe concurrent reads/writes or attempts to kill
 /// the child within specified timeouts.
@@ -160,8 +163,7 @@ impl SupervisedProcess {
     }
 
     /// Spawns an asynchronous resource monitoring loop that periodically queries
-    /// `/proc/<pid>` for CPU/memory usage. The period is set to 2 seconds to reduce overhead
-    /// and align with potential timeouts.
+    /// `/proc/<pid>` for CPU/memory usage.
     ///
     /// # Note
     /// - This loop is attached to `monitor_handle`. Re-run this method only if `monitor_handle`
@@ -327,7 +329,7 @@ impl SupervisedChild {
     /// already running, this does nothing.
     ///
     /// # Behavior
-    /// - Queries `/proc/<pid>` for CPU, memory, etc. every 2 seconds.
+    /// - Queries `/proc/<pid>` for CPU, memory, etc. on a sub-second sampling interval.
     /// - Use [`terminate_monitor`] to stop the task.
     /// - A watchdog is updated on each loop iteration for out-of-band health checks.
     pub async fn monitor_usage(&mut self) {
@@ -919,12 +921,32 @@ pub fn is_pid_active(pid: i32) -> io::Result<bool> {
 
 use bytes::BytesMut;
 
-async fn read_stream_to_buffer<R>(mut reader: R, buffer: LockWithTimeout<RollingBuffer>)
-where
+async fn flush_lines_to_buffer(
+    buffer: &LockWithTimeout<RollingBuffer>,
+    pending_lines: &mut Vec<String>,
+) {
+    if pending_lines.is_empty() {
+        return;
+    }
+
+    if let Ok(mut b) = buffer.try_write().await {
+        for line in pending_lines.drain(..) {
+            b.push(line);
+        }
+    }
+}
+
+async fn read_stream_to_buffer<R>(
+    mut reader: R,
+    buffer: LockWithTimeout<RollingBuffer>,
+    flush_interval: Duration,
+) where
     R: Unpin + AsyncRead,
 {
     let mut buf = BytesMut::with_capacity(1024);
     let mut partial = String::new();
+    let mut pending_lines: Vec<String> = Vec::new();
+    let mut last_flush = std::time::Instant::now();
 
     loop {
         match reader.read_buf(&mut buf).await {
@@ -935,6 +957,15 @@ where
                 log!(LogLevel::Warn, "Read error in stdio monitor: {}", e);
                 break;
             }
+            Ok(result) => match result {
+                Ok(n) if n == 0 => break, // EOF
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    log!(LogLevel::Warn, "Read error in stdio monitor: {}", e);
+                    break;
+                }
+            },
         };
 
         if let Ok(chunk) = std::str::from_utf8(&buf) {
@@ -942,20 +973,21 @@ where
 
             while let Some(pos) = partial.find('\n') {
                 let line = partial[..pos].to_string();
-                if let Ok(mut b) = buffer.try_write().await {
-                    b.push(line);
-                }
+                pending_lines.push(line);
                 partial.drain(..=pos); // remove up to and including newline
             }
         }
 
         buf.clear();
+        if last_flush.elapsed() >= flush_interval {
+            flush_lines_to_buffer(&buffer, &mut pending_lines).await;
+            last_flush = std::time::Instant::now();
+        }
     }
 
     // Push any trailing partial line
     if !partial.is_empty() {
-        if let Ok(mut b) = buffer.try_write().await {
-            b.push(partial);
-        }
+        pending_lines.push(partial);
     }
+    flush_lines_to_buffer(&buffer, &mut pending_lines).await;
 }

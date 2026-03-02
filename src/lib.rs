@@ -50,6 +50,9 @@ mod notification_test;
 #[path = "../src/tests/state_persistence.rs"]
 mod state_persistence_test;
 
+#[path = "../src/tests/aggregator.rs"]
+mod aggregator_test;
+
 #[cfg(target_os = "linux")]
 #[path = "../src/tests/resource_monitor.rs"]
 mod resource_monitor_test;

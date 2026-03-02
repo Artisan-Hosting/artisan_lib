@@ -308,6 +308,7 @@ pub struct UsageAccumulator {
     pub total_tx: u64,
     pub last_rx: u64,
     pub last_tx: u64,
+    pub has_network_baseline: bool,
     pub sample_count: u64,
 }
 
@@ -453,17 +454,40 @@ pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(
     entry.sample_count += 1;
 
     // Network deltas
-    let rx_delta = live.rx_bytes.saturating_sub(entry.last_rx);
-    let tx_delta = live.tx_bytes.saturating_sub(entry.last_tx);
-
-    if live.rx_bytes < entry.last_rx || live.tx_bytes < entry.last_tx {
-        // Instance likely restarted
-        entry.last_rx = 0;
-        entry.last_tx = 0;
+    // First network sample seeds the baseline so we don't bill cumulative counters since boot.
+    if !entry.has_network_baseline {
+        entry.last_rx = live.rx_bytes;
+        entry.last_tx = live.tx_bytes;
+        entry.has_network_baseline = true;
+        return Ok(());
     }
 
-    entry.total_rx += rx_delta;
-    entry.total_tx += tx_delta;
+    if live.rx_bytes >= entry.last_rx {
+        entry.total_rx += live.rx_bytes - entry.last_rx;
+    } else {
+        log!(
+            LogLevel::Warn,
+            "RX counter moved backwards for {}:{} ({} -> {}), resetting baseline",
+            live.runner_id,
+            live.instance_id,
+            entry.last_rx,
+            live.rx_bytes
+        );
+    }
+
+    if live.tx_bytes >= entry.last_tx {
+        entry.total_tx += live.tx_bytes - entry.last_tx;
+    } else {
+        log!(
+            LogLevel::Warn,
+            "TX counter moved backwards for {}:{} ({} -> {}), resetting baseline",
+            live.runner_id,
+            live.instance_id,
+            entry.last_tx,
+            live.tx_bytes
+        );
+    }
+
     entry.last_rx = live.rx_bytes;
     entry.last_tx = live.tx_bytes;
     Ok(())

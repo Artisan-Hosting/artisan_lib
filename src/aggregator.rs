@@ -46,7 +46,7 @@ use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::portal::{ManagerData, ProjectInfo};
 
 /// Path where the aggregator stores AIS Manager data.
-pub const AGGREGATOR_PATH: &str = "/tmp/.ais_manager_data";
+pub const AGGREGATOR_PATH: &str = "/opt/artisan/tmp/.ais_manager_data";
 
 /// A convenience type alias for string-based identifiers in this module.
 type ID = Stringy;

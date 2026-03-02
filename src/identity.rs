@@ -18,7 +18,7 @@ use crate::{encryption::simple_encrypt, timestamp::current_timestamp};
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
 /// The file path to store the `Identifier` object on disk.
-pub const IDENTITYPATHSTR: &str = "/opt/artisan/identity";
+pub const IDENTITYPATHSTR: &str = "/opt/artisan/.identity";
 
 /// The length to which cryptographic signatures (hashes) should be truncated.
 pub const HASH_LENGTH: usize = 28;

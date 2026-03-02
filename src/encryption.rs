@@ -292,7 +292,7 @@ async fn _execution_locked() -> bool {
 /// This function is marked as `unsafe` because it uses `unsafe` string
 /// conversions internally. Only use it if you are certain the input data
 /// can be safely converted to `String`. Also This function can lead to
-/// unessacery filling of the /tmp dir if used too many times as the cleaning
+/// unessacery filling of the /opt/artisan/tmp dir if used too many times as the cleaning
 /// loop looses its refrence to the tmp recs data called this way
 ///
 /// # Deprecation

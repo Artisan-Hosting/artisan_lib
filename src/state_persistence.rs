@@ -253,7 +253,7 @@ impl fmt::Display for AppState {
 pub struct StatePersistence;
 
 impl StatePersistence {
-    /// Derives the default save path for the application state using `/tmp/.<app_name>.state`.
+    /// Derives the default save path for the application state using `/opt/artisan/tmp/.<app_name>.state`.
     ///
     /// # Example
     /// ```rust
@@ -264,7 +264,7 @@ impl StatePersistence {
     /// println!("State file path: {:?}", path);
     /// ```
     pub fn get_state_path(config: &AppConfig) -> PathType {
-        PathType::Content(format!("/tmp/.{}.state", config.app_name))
+        PathType::Content(format!("/opt/artisan/tmp/.{}.state", config.app_name))
     }
 
     /// Saves the provided [`AppState`] to the specified `path`.  

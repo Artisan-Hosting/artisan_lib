@@ -5,6 +5,7 @@ This plan is based on [spec-ish.md](./spec-ish.md) and [migration-plan-identity-
 ## Goal
 
 Restructure identity and separate runtime state from configuration while minimizing complete logic rewrites.
+As part of that split, use `WorkloadConfig` as a semantic wrapper around `Enviornment` (`Enviornment_V2`) as the canonical workload configuration model.
 
 ## 1. Lock vocabulary first
 
@@ -49,13 +50,18 @@ Keep algorithms and crypto unchanged. This pass should be mostly mechanical relo
 In [state_persistence.rs](/home/dwhitfield/Developer/Artisan_Hosting/Libraries/artisan_lib/src/state_persistence.rs), split current mixed shape:
 
 - `RuntimeState`: status, pid, timestamps, counters, error log, stdout/stderr
-- `WorkloadConfig`: configuration and intended runtime settings
+- `WorkloadConfig`: semantic config wrapper around `Enviornment` (`Enviornment_V2`)
 
 Replace [config_bundle.rs](/home/dwhitfield/Developer/Artisan_Hosting/Libraries/artisan_lib/src/config_bundle.rs) `ApplicationConfig` with:
 
 - `WorkloadSnapshot { identity, config, runtime, custom }`
 
 Keep behavior in `update_state`, `log_error`, and `wind_down_state` functionally the same, but retarget fields to the new structures.
+
+Use environment-backed config references in runtime/config paths:
+
+- build v2 config using `Enviornment::new_v2()` + setters + `finalize()`
+- store/transmit through `WorkloadConfig`
 
 ## 5. Mechanically rename message/payload fields
 
@@ -125,7 +131,7 @@ Add tests for:
 
 1. New types/modules added and compiling
 2. Identity module split
-3. State/config split
+3. State/config split + `WorkloadConfig` (`Enviornment_V2`) cutover
 4. Aggregator + portal schema update
 5. Persistence cutover
 6. Process-manager call-site rewiring
@@ -138,6 +144,8 @@ Add tests for:
 - [ ] Introduce `RuntimeState`, `WorkloadConfig`, `WorkloadSnapshot`
 - [ ] Refactor `state_persistence` APIs to new types
 - [ ] Refactor `config_bundle` into snapshot-oriented composition
+- [ ] Use `WorkloadConfig` (`Enviornment_V2`) builder/finalize flow across runtime call sites
+- [ ] Remove `AppConfig`-centric call paths from state/portal/config-bundle modules
 - [ ] Rename identity fields in `aggregator` structs and functions
 - [ ] Rename payload fields in `portal` structs
 - [ ] Update `process_manager` state mutation call signatures

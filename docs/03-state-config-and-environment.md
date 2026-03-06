@@ -4,16 +4,16 @@
 
 ### Main structures
 
-- `AppConfig`
+- `WorkloadConfig`
 - `GitConfig`
 - `DatabaseConfig`
 - `Aggregator`
 
 ### Key functions
 
-- `AppConfig::new()`: load defaults + `Overrides` + `Settings.<RUN_MODE>` + `APP__*` env vars.
-- `validate()`: sanity checks for key fields.
-- `dummy()`: useful placeholder config for tests/examples.
+- `WorkloadConfig::new(enviornment)`: wrap an `Enviornment` payload.
+- `WorkloadConfig::new_v2()`: start a V2 builder flow.
+- `WorkloadConfig::dummy()`: useful placeholder config for tests/examples.
 
 ## `state_persistence` module
 
@@ -24,7 +24,7 @@
 
 ### Key functions
 
-- `StatePersistence::get_state_path(&config)`
+- `StatePersistence::get_state_path(state_name)`
 - `save_state(state, path).await` / `load_state(path).await`
 - `update_state(state, path, metrics).await`
 - `wind_down_state(state, path).await`
@@ -34,13 +34,13 @@
 ### Example
 
 ```rust,no_run
-use artisan_middleware::config::AppConfig;
+use artisan_middleware::config::WorkloadConfig;
 use artisan_middleware::state_persistence::StatePersistence;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = AppConfig::new().unwrap_or_else(|_| AppConfig::dummy());
-    let state_path = StatePersistence::get_state_path(&config);
+    let _config = WorkloadConfig::dummy();
+    let state_path = StatePersistence::get_state_path("runner-name");
 
     // Load existing state if available
     let _loaded = StatePersistence::load_state(&state_path).await.ok();
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `ApplicationType`
 - `Enviornment` (`V1` and `V2`)
 - `Enviornment_V1` (documented and operational)
-- `Enviornment_V2` (declared; parsing marked unimplemented)
+- `Enviornment_V2` (builder + validation + parsing operational)
 
 ### Key constants
 
@@ -68,6 +68,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `parse_to().await` (adds version header + encrypts)
 - `parse_from(bytes).await` (decrypts + validates version header)
 - `Enviornment::parse(bytes).await` (version-dispatch parser)
+
+### Key functions (`V2`)
+
+- `Enviornment::new_v2()` (builder entrypoint)
+- `set_*` / `with_*` / `add_*` helpers
+- `validate()`
+- `finalize()` (returns `Enviornment::V2`)
 
 ### Example
 
@@ -101,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 `ApplicationConfig` is a convenience wrapper around:
 
 - runtime `AppState`
-- static `AppConfig`
+- static `WorkloadConfig`
 - optional `Enviornment`
 - optional service-specific JSON config
 

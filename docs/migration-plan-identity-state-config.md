@@ -2,7 +2,7 @@
 
 This plan is based on [spec-ish.md](./spec-ish.md) and the current library shape.
 
-Goal: introduce explicit identity domains and separate runtime state from configuration with minimal logic churn.
+Goal: introduce explicit identity domains and separate runtime state from configuration with minimal logic churn, using `WorkloadConfig` as an `Enviornment`/`Enviornment_V2` wrapper.
 
 ## 1. Current pain points in this codebase
 
@@ -31,7 +31,7 @@ Identity domains:
 
 State/config split:
 
-- `WorkloadConfig`: intended/static configuration.
+- `WorkloadConfig`: intended/static configuration wrapper around `Enviornment`/`Enviornment_V2`.
 - `RuntimeState`: live/ephemeral state.
 - `WorkloadSnapshot`: combined transport/persistence view when needed.
 
@@ -132,7 +132,7 @@ Plan:
 
 - `RuntimeState` from runtime-only fields currently in `AppState`:
   - status, pid, last_updated, started_at, event_counter, error_log, stdout, stderr
-- `WorkloadConfig` from `AppConfig` (+ `enviornment`/custom where applicable)
+- `WorkloadConfig` from `Enviornment`/`Enviornment_V2` (+ custom where applicable)
 - `WorkloadRuntimeBundle` (temporary adapter), replacing current implicit coupling
 
 ## 7.2 Keep old API surface with adapters
@@ -142,7 +142,7 @@ In `state_persistence`:
 - keep `AppState` for now
 - add conversion:
   - `impl From<AppState> for RuntimeState`
-  - `impl RuntimeState { fn with_config(self, config: AppConfig) -> AppState }`
+  - `impl RuntimeState { fn with_config(self, config: WorkloadConfig) -> AppState }`
 
 This lets existing process_manager code continue to call:
 
@@ -214,7 +214,7 @@ Use heartbeat expiry to reject stale updates.
 ## PR 7: Remove old fields
 
 - Remove `app_id`/`git_id` only after consumers are migrated.
-- Remove `AppState.config` once no paths depend on it.
+- Remove temporary `AppConfig` conversion adapters once no paths depend on them.
 
 ## 10. Specific low-churn mapping guide
 

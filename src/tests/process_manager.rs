@@ -1,11 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::aggregator::Status;
-    use crate::config::AppConfig;
     use crate::process_manager::{
         spawn_complex_process, spawn_simple_process, ChildLock, SupervisedChild, SupervisedProcess,
     };
-    use crate::state_persistence::AppState;
+    use crate::state::RuntimeState;
     use crate::timestamp::current_timestamp;
 
     use dusa_collection_utils::core::errors::Errors;
@@ -253,17 +252,16 @@ mod tests {
     async fn test_spawn_simple_process_output_capture() {
         // We'll test capturing output. The `echo` command is often present, but if not,
         // replace with something that writes to stdout quickly.
-        let mut state = AppState {
+        let mut state = RuntimeState {
             data: String::new(),
             event_counter: 0,
-            stared_at: current_timestamp(),
+            started_at: current_timestamp(),
             name: String::new(),
             version: SoftwareVersion::dummy(),
             status: Status::Building,
             pid: 0,
             last_updated: current_timestamp(),
             error_log: Vec::new(),
-            config: AppConfig::dummy(),
             system_application: false,
             stderr: Vec::new(),
             stdout: Vec::new(),
@@ -293,17 +291,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_simple_process_inherit() {
-        let mut state = AppState {
+        let mut state = RuntimeState {
             data: String::new(),
             event_counter: 0,
             name: String::new(),
-            stared_at: current_timestamp(),
+            started_at: current_timestamp(),
             version: SoftwareVersion::dummy(),
             status: Status::Building,
             pid: 0,
             last_updated: current_timestamp(),
             error_log: Vec::new(),
-            config: AppConfig::dummy(),
             system_application: false,
             stderr: Vec::new(),
             stdout: Vec::new(),
@@ -325,17 +322,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_simple_process_failure() {
-        let mut state = AppState {
+        let mut state = RuntimeState {
             data: String::new(),
             event_counter: 0,
             name: String::new(),
-            stared_at: current_timestamp(),
+            started_at: current_timestamp(),
             version: SoftwareVersion::dummy(),
             status: Status::Building,
             pid: 0,
             last_updated: current_timestamp(),
             error_log: Vec::new(),
-            config: AppConfig::dummy(),
             system_application: false,
             stderr: Vec::new(),
             stdout: Vec::new(),

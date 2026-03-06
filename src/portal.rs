@@ -13,7 +13,7 @@ use crate::aggregator::Metrics;
 #[allow(unused_imports)] // for documents
 use crate::{
     aggregator::{AppStatus, Status},
-    config::AppConfig,
+    config::WorkloadConfig,
     enviornment::definitions::{Enviornment, Enviornment_V1, Enviornment_V2},
     git_actions::GitCredentials,
     identity::Identifier,
@@ -342,9 +342,8 @@ pub struct RunnerDetails {
 
     /// Stores high-level, Artisan-specific configuration for this runner.
     ///
-    /// `AppConfig` often encompasses standardized settings across multiple services,
-    /// ensuring consistency in how runners are deployed and managed.
-    pub artisan_config: AppConfig,
+    /// `WorkloadConfig` is an environment-backed configuration wrapper for this runner.
+    pub artisan_config: WorkloadConfig,
 
     /// A optional JSON object containing runner-specific configuration options.
     ///

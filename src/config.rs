@@ -5,45 +5,211 @@ use dusa_collection_utils::{
     core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion,
 };
 use serde::{Deserialize, Serialize};
-use std::{env, fmt};
+use std::{env, fmt, fs, path::Path};
 
-use crate::git_actions::GitServer;
+use crate::{
+    enviornment::definitions::{
+        ApplicationType, Enviornment, Enviornment_V1, Enviornment_V2, ExecutionUser,
+    },
+    git_actions::GitServer,
+};
 
 /// Represents the application's configuration settings.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct AppConfig {
     /// A name for the application instance.
-    pub app_name: Stringy,
+    pub app_name: Stringy, // TODO move this to the enviornment_v2 object
 
     /// Version of the application.
     // pub version: String,
 
     /// Maximum ram usage in MB
-    pub max_ram_usage: usize,
+    pub max_ram_usage: usize, // TODO move this to the enviornment_v2 object
 
     /// Maximum cpu time usage
     /// This would be practically be used to restart a service
     /// when it gets to it's aloted cpu time. A pricing scale be
     /// set like this.
-    pub max_cpu_usage: usize,
+    pub max_cpu_usage: usize, // TODO move this to the enviornment_v2 object
 
     /// The environment the application is running in (e.g., development, staging, production).
-    pub environment: String,
+    pub environment: Option<Enviornment>,
 
     /// Optional setting for enabling debug mode.
-    pub debug_mode: bool,
+    pub debug_mode: bool, // TODO move this to the enviornment_v2 object
 
     /// Settings for what information is logged
-    pub log_level: LogLevel,
+    pub log_level: LogLevel, // TODO move this to the enviornment_v2 object
 
     /// Configuration related to the Git functionality.
-    pub git: Option<GitConfig>,
+    pub git: Option<GitConfig>, // TODO move this to the enviornment_v2 object
 
-    /// Configuration related to the database (optional example).
+    /// Configuration related to the database (optional example). // TODO Depricate this field, we don't control db access in this plane any more
     pub database: Option<DatabaseConfig>,
 
-    /// Configuration for Aggregator communication
+    // / Configuration for Aggregator communication  // TODO Depricate this field, we don't use the aggregator any more
     pub aggregator: Option<Aggregator>, // Add other configuration sections as needed.
+}
+
+/// Intended/static workload configuration split out from runtime state.
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct WorkloadConfig {
+    pub enviornment: Enviornment,
+}
+
+impl WorkloadConfig {
+    /// Creates a workload config wrapper from a concrete environment definition.
+    pub fn new(enviornment: Enviornment) -> Self {
+        Self { enviornment }
+    }
+
+    /// Convenience constructor for building a V2 environment using the builder API.
+    pub fn new_v2() -> Enviornment_V2 {
+        Enviornment::new_v2()
+    }
+
+    /// Returns the wrapped environment payload.
+    pub fn get_enviornment(&self) -> &Enviornment {
+        &self.enviornment
+    }
+
+    /// Returns `Some(&Enviornment_V2)` when the wrapped payload is V2.
+    pub fn as_v2(&self) -> Option<&Enviornment_V2> {
+        match &self.enviornment {
+            Enviornment::V2(v2) => Some(v2),
+            _ => None,
+        }
+    }
+
+    /// Returns a best-effort RAM limit extracted from V2 configuration.
+    pub fn max_ram_usage(&self) -> Option<usize> {
+        self.as_v2().and_then(|v2| v2.max_ram_usage)
+    }
+
+    /// Returns a best-effort CPU limit extracted from V2 configuration.
+    pub fn max_cpu_usage(&self) -> Option<usize> {
+        self.as_v2().and_then(|v2| v2.max_cpu_usage)
+    }
+
+    /// Returns debug mode from V2 config, defaulting to `false` for non-V2 payloads.
+    pub fn debug_mode(&self) -> bool {
+        self.as_v2().map(|v2| v2.debug_mode).unwrap_or(false)
+    }
+
+    /// Returns log level from V2 config, defaulting to `Info` for non-V2 payloads.
+    pub fn log_level(&self) -> LogLevel {
+        self.as_v2()
+            .map(|v2| v2.log_level)
+            .unwrap_or(LogLevel::Info)
+    }
+
+    /// Returns git config from V2 payload when present.
+    pub fn git_config(&self) -> Option<&GitConfig> {
+        self.as_v2().and_then(|v2| v2.git.as_ref())
+    }
+
+    /// Returns a minimal, valid dummy workload configuration.
+    pub fn dummy() -> Self {
+        Self::new(Enviornment::V2(Enviornment::new_v2()))
+    }
+}
+
+impl From<AppConfig> for WorkloadConfig {
+    fn from(config: AppConfig) -> Self {
+        if let Some(enviornment) = config.environment {
+            return Self::new(enviornment);
+        }
+
+        Self::new(Enviornment::V2(Enviornment_V2 {
+            max_ram_usage: Some(config.max_ram_usage),
+            max_cpu_usage: Some(config.max_cpu_usage),
+            debug_mode: config.debug_mode,
+            log_level: config.log_level,
+            git: config.git,
+            execution_user: ExecutionUser::Default,
+            port_range: None,
+            secret_store: None,
+            path_modifier: None,
+            dependency_command: None,
+            build_command: None,
+            run_command: None,
+            env_var_store: None,
+        }))
+    }
+}
+
+impl From<Enviornment> for WorkloadConfig {
+    fn from(enviornment: Enviornment) -> Self {
+        Self::new(enviornment)
+    }
+}
+
+impl From<Enviornment_V2> for WorkloadConfig {
+    fn from(enviornment_v2: Enviornment_V2) -> Self {
+        Self::new(Enviornment::V2(enviornment_v2))
+    }
+}
+
+impl fmt::Display for WorkloadConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}:", "WorkloadConfig".bold().underline().purple())?;
+        writeln!(f, "  {}: {}", "Environment".bold().cyan(), self.enviornment)
+    }
+}
+
+impl Default for WorkloadConfig {
+    fn default() -> Self {
+        Self::dummy()
+    }
+}
+
+impl AppConfig {
+    /// Transitional helper to convert legacy `AppConfig` into the environment-backed `WorkloadConfig`.
+    pub fn into_workload_config(self) -> WorkloadConfig {
+        self.into()
+    }
+}
+
+impl WorkloadConfig {
+    /// Transitional helper to convert back to legacy `AppConfig` where older APIs still require it.
+    pub fn into_app_config(self) -> AppConfig {
+        self.into()
+    }
+}
+
+impl From<&WorkloadConfig> for AppConfig {
+    fn from(config: &WorkloadConfig) -> Self {
+        match &config.enviornment {
+            Enviornment::V2(v2) => Self {
+                app_name: Stringy::from("Workload"),
+                max_ram_usage: v2.max_ram_usage.unwrap_or(0),
+                max_cpu_usage: v2.max_cpu_usage.unwrap_or(0),
+                environment: Some(config.enviornment.clone()),
+                debug_mode: v2.debug_mode,
+                log_level: v2.log_level,
+                git: v2.git.clone(),
+                database: None,
+                aggregator: None,
+            },
+            Enviornment::V1(v1) => Self {
+                app_name: Stringy::from("Workload"),
+                max_ram_usage: 0,
+                max_cpu_usage: 0,
+                environment: Some(Enviornment::V1(v1.clone())),
+                debug_mode: false,
+                log_level: LogLevel::Info,
+                git: None,
+                database: None,
+                aggregator: None,
+            },
+        }
+    }
+}
+
+impl From<WorkloadConfig> for AppConfig {
+    fn from(config: WorkloadConfig) -> Self {
+        AppConfig::from(&config)
+    }
 }
 
 /// Configuration settings for aggregator communication
@@ -64,8 +230,6 @@ pub struct GitConfig {
 
     /// Path to the file containing Git credentials.
     pub credentials_file: String,
-    // /// Optional SSH key path for Git operations.
-    // pub ssh_key_path: Option<String>,
 }
 
 /// Configuration settings specific to the database (optional example).
@@ -76,6 +240,36 @@ pub struct DatabaseConfig {
 
     /// The size of the connection pool.
     pub pool_size: u32,
+}
+
+impl Aggregator {
+    /// Returns a dummy `Aggregator` configuration.
+    pub fn dummy() -> Self {
+        Self {
+            socket_path: "/tmp/artisan-aggregator.sock".to_owned(),
+            socket_permission: Some(0o660),
+        }
+    }
+}
+
+impl GitConfig {
+    /// Returns a dummy `GitConfig`.
+    pub fn dummy() -> Self {
+        Self {
+            default_server: GitServer::GitHub,
+            credentials_file: "/opt/artisan/artisan.cf".to_owned(),
+        }
+    }
+}
+
+impl DatabaseConfig {
+    /// Returns a dummy `DatabaseConfig`.
+    pub fn dummy() -> Self {
+        Self {
+            url: "postgres://artisan:dummy_password@localhost:5432/artisan".to_owned(),
+            pool_size: 10,
+        }
+    }
 }
 
 impl AppConfig {
@@ -177,13 +371,52 @@ impl AppConfig {
             // version: SoftwareVersion::dummy().to_string(),
             max_ram_usage: 512,
             max_cpu_usage: 80,
-            environment: "development".to_string(),
+            environment: None,
             debug_mode: true,
             log_level: LogLevel::Debug,
             git: None,
             database: None,
             aggregator: None,
         }
+    }
+
+    /// Returns a fully-populated dummy `AppConfig` that includes all optional sections.
+    pub fn dummy_populated() -> Self {
+        Self {
+            app_name: Stringy::from("MyDummyApp"),
+            max_ram_usage: 512,
+            max_cpu_usage: 80,
+            environment: Some(Enviornment::V1(Enviornment_V1 {
+                application_type: Some(ApplicationType::Simple),
+                execution_uid: Some(1000),
+                execution_gid: Some(1000),
+                primary_listening_port: Some(8080),
+                secret_id: Some(Stringy::from("dummy-secret-id")),
+                secret_passwd: Some(Stringy::from("dummy-secret-password")),
+                path_modifier: Some(Stringy::from("/opt/artisan/bin")),
+                pre_build_command: Some(Stringy::from("echo prebuild")),
+                build_command: Some(Stringy::from("cargo build --release")),
+                run_command: Some(Stringy::from("./target/release/my_dummy_app")),
+                env_key_0: Some((Stringy::from("APP_ENV"), Stringy::from("development"))),
+            })),
+            debug_mode: true,
+            log_level: LogLevel::Debug,
+            git: Some(GitConfig::dummy()),
+            database: Some(DatabaseConfig::dummy()),
+            aggregator: Some(Aggregator::dummy()),
+        }
+    }
+
+    /// Serializes a fully-populated dummy config to pretty TOML.
+    pub fn dummy_populated_toml() -> Result<String, ConfigError> {
+        toml::to_string_pretty(&Self::dummy_populated())
+            .map_err(|e| ConfigError::Foreign(Box::new(e)))
+    }
+
+    /// Writes a fully-populated dummy config file to `path`.
+    pub fn write_dummy_file<P: AsRef<Path>>(path: P) -> Result<(), ConfigError> {
+        let toml = Self::dummy_populated_toml()?;
+        fs::write(path, toml).map_err(|e| ConfigError::Foreign(Box::new(e)))
     }
 }
 
@@ -212,7 +445,21 @@ impl fmt::Display for AppConfig {
             "Cpu time limit".bold().cyan(),
             self.max_cpu_usage
         )?;
-        writeln!(f, "  {}: {}", "Environment".bold().cyan(), self.environment)?;
+        writeln!(
+            f,
+            "  {}: {}",
+            "Environment".bold().cyan(),
+            match &self.environment {
+                Some(data) => {
+                    match data {
+                        Enviornment::V1(enviornment_v1) => enviornment_v1.to_string(),
+                        Enviornment::V2(enviornment_v2) => enviornment_v2.to_string(),
+                    }
+                }
+                None => "None set".bold().red().to_string(),
+            }
+        )?;
+
         writeln!(
             f,
             "  {}: {}",
@@ -286,5 +533,35 @@ impl fmt::Display for AppConfig {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn dummy_populated_sets_all_optional_sections() {
+        let config = AppConfig::dummy_populated();
+
+        assert!(config.environment.is_some());
+        assert!(config.git.is_some());
+        assert!(config.database.is_some());
+        assert!(config.aggregator.is_some());
+    }
+
+    #[test]
+    fn write_dummy_file_writes_round_trippable_toml() {
+        let temp_dir = tempdir().unwrap();
+        let path = temp_dir.path().join("reference-config.toml");
+
+        AppConfig::write_dummy_file(&path).unwrap();
+
+        let file_contents = fs::read_to_string(&path).unwrap();
+        assert!(file_contents.contains("app_name"));
+
+        let parsed: AppConfig = toml::from_str(&file_contents).unwrap();
+        assert_eq!(parsed, AppConfig::dummy_populated());
     }
 }

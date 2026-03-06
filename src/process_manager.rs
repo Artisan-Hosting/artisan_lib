@@ -20,7 +20,8 @@ use tokio::task::JoinHandle;
 
 use crate::aggregator::Metrics;
 use crate::resource_monitor::{MonitorWatchdog, MonitorWatchdogSnapshot, ResourceMonitorLock};
-use crate::state_persistence::{log_error, update_state, AppState};
+use crate::state::RuntimeState;
+use crate::state_persistence::{log_error, update_state};
 
 const RESOURCE_MONITOR_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 const STDX_BUFFER_UPDATE_INTERVAL: Duration = Duration::from_millis(500);
@@ -645,13 +646,13 @@ impl ChildLock {
 }
 
 /// Spawns a simple child process asynchronously. Optionally captures the child's stdout/stderr,
-/// or inherits them if `capture_output` is false. Updates the application’s [`AppState`]
+/// or inherits them if `capture_output` is false. Updates the application’s [`RuntimeState`]
 /// and logs any errors.
 ///
 /// # Arguments
 /// * `command` - The [`Command`] to execute.
 /// * `capture_output` - Whether to capture the child’s I/O or inherit it.
-/// * `state` - Mutable reference to an [`AppState`] for logging or state updates.
+/// * `state` - Mutable reference to a [`RuntimeState`] for logging or state updates.
 /// * `state_path` - The location/path to which state updates are persisted.
 ///
 /// # Returns
@@ -665,7 +666,7 @@ impl ChildLock {
 pub async fn spawn_simple_process(
     command: &mut Command,
     capture_output: bool,
-    state: &mut AppState,
+    state: &mut RuntimeState,
     state_path: &PathType,
 ) -> Result<Child, io::Error> {
     if capture_output {

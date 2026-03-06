@@ -1,7 +1,9 @@
 use dusa_collection_utils::{core::errors::ErrorArrayItem, core::functions::current_timestamp};
 
 use crate::{
-    aggregator::Status, config::WorkloadConfig, enviornment::definitions::Enviornment,
+    aggregator::Status,
+    config::WorkloadConfig,
+    enviornment::definitions::Enviornment,
     state::{RuntimeState, WorkloadSnapshot},
 };
 

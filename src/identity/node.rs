@@ -1,3 +1,15 @@
+//! Node identity domain.
+//!
+//! This module owns durable host/node identity primitives. The key behavior here
+//! is persistence and verification of the long-lived node identifier used as the
+//! root of trust for higher-level workload/runtime identity.
+//!
+//! Design notes:
+//! - The hashing/signature behavior is intentionally unchanged from the legacy
+//!   identity implementation.
+//! - Snowflake-based numeric ID generation remains the same to minimize churn.
+//! - Persistence path and encryption flow are kept stable for compatibility.
+
 use dusa_collection_utils::{
     core::errors::{ErrorArrayItem, Errors},
     core::logger::LogLevel,
@@ -17,9 +29,8 @@ use crate::{encryption::simple_encrypt, timestamp::current_timestamp};
 #[cfg(target_os = "linux")]
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
-// TODO When we come in here to re-organize, I want to add a field  for a registration date in our identity value and have that contribute to that hash. 
-// TODO I also want to rename the hash to shadow or something similar, I want to use it as a garuntee that a message came from a given node, idk how yet 
-
+// TODO When we come in here to re-organize, I want to add a field  for a registration date in our identity value and have that contribute to that hash.
+// TODO I also want to rename the hash to shadow or something similar, I want to use it as a garuntee that a message came from a given node, idk how yet
 
 /// The file path to store the `Identifier` object on disk.
 pub const IDENTITYPATHSTR: &str = "/opt/artisan/.identity";
@@ -27,7 +38,7 @@ pub const IDENTITYPATHSTR: &str = "/opt/artisan/.identity";
 /// The length to which cryptographic signatures (hashes) should be truncated.
 pub const HASH_LENGTH: usize = 28;
 
-/// A custom epoch used by the snowflake-based ID generator.  
+/// A custom epoch used by the snowflake-based ID generator.
 /// This value represents an offset subtracted from the current Unix timestamp
 /// to keep the resulting IDs relatively smaller.
 pub const CUSTOM_EPOCH: u64 = 1_047_587_400;
@@ -35,7 +46,7 @@ pub const CUSTOM_EPOCH: u64 = 1_047_587_400;
 /// A Snowflake-like ID generator for creating (generally) unique 64-bit IDs.
 ///
 /// # Overview
-/// Inspired by Twitter’s Snowflake algorithm, this generator splits the 64-bit ID as follows:
+/// Inspired by Twitter's Snowflake algorithm, this generator splits the 64-bit ID as follows:
 /// - **Bits 63..=22**: A timestamp offset from [`CUSTOM_EPOCH`].
 /// - **Bits 21..=17**: Datacenter ID (5 bits).
 /// - **Bits 16..=12**: Machine ID (5 bits).
@@ -46,9 +57,9 @@ pub const CUSTOM_EPOCH: u64 = 1_047_587_400;
 pub struct SnowflakeIDGenerator {
     /// The custom epoch offset from which we calculate the timestamp.
     custom_epoch: u64,
-    /// A 5-bit identifier for the datacenter (0–31).
+    /// A 5-bit identifier for the datacenter (0-31).
     datacenter_id: u8,
-    /// A 5-bit identifier for the machine/host (0–31).
+    /// A 5-bit identifier for the machine/host (0-31).
     machine_id: u8,
     /// Sequence counter that increments if multiple IDs are generated within the same millisecond.
     sequence: u16,
@@ -191,7 +202,7 @@ impl Identifier {
         truncate(&*create_hash(format!("{}", id)), HASH_LENGTH)
     }
 
-    /// Creates a new [`Identifier`] by generating a random datacenter and machine ID (1–5),
+    /// Creates a new [`Identifier`] by generating a random datacenter and machine ID (1-5),
     /// constructing a [`SnowflakeIDGenerator`], and producing a fresh snowflake `id`.
     ///
     /// # Returns
@@ -388,5 +399,48 @@ impl Identifier {
     /// ```
     pub fn display_sig(&self) {
         log!(LogLevel::Debug, "SIG: {}", self._signature);
+    }
+}
+
+/// Durable node identity key.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(transparent)]
+pub struct NodeId(pub u64);
+
+impl NodeId {
+    /// Creates a `NodeId` from the persisted legacy [`Identifier`].
+    pub fn from_identifier(identifier: &Identifier) -> Self {
+        Self(identifier.id)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl NodeId {
+    /// Generates a fresh durable node identifier.
+    ///
+    /// This reuses the existing [`Identifier`] generation path to avoid changing
+    /// node identity semantics during migration.
+    pub async fn generate() -> Result<Self, ErrorArrayItem> {
+        Ok(Self(Identifier::new().await?.id))
+    }
+
+    /// Loads the persisted node identifier from disk if present.
+    ///
+    /// Returns `Ok(None)` when the identity file is missing or invalid.
+    pub async fn load() -> Result<Option<Self>, ErrorArrayItem> {
+        Ok(Identifier::load()
+            .await?
+            .map(|identifier| Self(identifier.id)))
+    }
+
+    /// Persists the node identifier using existing identifier persistence logic.
+    ///
+    /// The signature is regenerated so the stored payload remains verifiable.
+    pub fn save_to_file(&self) -> Result<(), ErrorArrayItem> {
+        Identifier {
+            id: self.0,
+            _signature: Identifier::generate_signature(self.0),
+        }
+        .save_to_file()
     }
 }

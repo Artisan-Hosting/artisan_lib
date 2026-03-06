@@ -72,7 +72,14 @@ mod tests {
         let identity = IdentityContext::new(
             NodeId(1),
             WorkloadIdentity::new(NodeId(1), WorkloadId::new("workload"), "source".into()),
-            RuntimeIdentity::new(NodeId(1), WorkloadId::new("workload"), RuntimeId(2), 1, 99, None),
+            RuntimeIdentity::new(
+                NodeId(1),
+                WorkloadId::new("workload"),
+                RuntimeId(2),
+                1,
+                99,
+                None,
+            ),
             AuthorityIdentity::new(
                 AuthorityId(3),
                 RuntimeId(2),

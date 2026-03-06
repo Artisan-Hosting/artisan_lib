@@ -41,9 +41,9 @@ use std::{
 use tokio::sync::broadcast;
 use tokio::time::interval;
 
-use crate::config_bundle::ApplicationConfig;
 use crate::encryption::{simple_decrypt, simple_encrypt};
 use crate::portal::{ManagerData, ProjectInfo};
+use crate::state::WorkloadSnapshot;
 
 /// Path where the aggregator stores AIS Manager data.
 pub const AGGREGATOR_PATH: &str = "/opt/artisan/tmp/.ais_manager_data";
@@ -606,8 +606,8 @@ pub struct AppStatus {
     pub app_id: ID,
     /// Additional identifier (often a Git commit SHA or branch).
     pub git_id: ID,
-    /// The application state and all configuration data associated, refer to [`ApplicationConfig`]
-    pub app_data: ApplicationConfig,
+    /// Runtime and config snapshot data associated with this application.
+    pub app_data: WorkloadSnapshot,
     /// The reported uptime of the instance
     pub uptime: Option<u64>,
     /// A list of errors encountered by the application.
@@ -668,7 +668,7 @@ impl fmt::Display for AppStatus {
                 .map(|m| m.to_string())
                 .unwrap_or_else(|| "None".to_string()),
             "State Data".bold().cyan(),
-            format!("{}\n{}", self.app_data.state, self.app_data.config),
+            format!("{}\n{}", self.app_data.runtime, self.app_data.config),
             "Timestamp".bold().cyan(),
             self.timestamp,
             "System App".bold().cyan(),

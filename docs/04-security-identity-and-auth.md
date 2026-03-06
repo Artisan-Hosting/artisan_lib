@@ -32,34 +32,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## `identity` module (Linux)
 
+The identity model is now split into explicit domains.
+For full architecture details, see [07-identity-platform.md](./07-identity-platform.md).
+
 ### Main structures/constants
 
-- `SnowflakeIDGenerator`
-- `NodeIdentity`
-- `IDENTITYPATHSTR`, `HASH_LENGTH`, `CUSTOM_EPOCH`
+- Node domain: `Identifier`, `NodeId`, `SnowflakeIDGenerator`
+- Workload domain: `WorkloadId`, `WorkloadIdentity`
+- Runtime domain: `RuntimeId`, `RuntimeIdentity`
+- Authority domain: `AuthorityId`, `AuthorityKind`, `AuthorityIdentity`
+- Shared context: `IdentityContext`, `IDENTITY_RENAME_MAP`
+- Node constants: `IDENTITYPATHSTR`, `HASH_LENGTH`, `CUSTOM_EPOCH`
 
 ### Key functions
 
-- `SnowflakeIDGenerator::new(datacenter_id, machine_id)`
-- `generate_id().await`
-- `NodeIdentity::new().await`
-- `verify().await`
-- `load().await`, `save_to_file()`, `load_from_file()`
-- `to_json()`, `to_encrypted_json().await`
+- `NodeId::generate().await`, `NodeId::load().await`, `NodeId::save_to_file()`
+- `Identifier::new().await`, `verify().await`, `load().await`, `save_to_file()`
+- `WorkloadId::new(...)`, `WorkloadId::from_git_auth(...)`
+- `RuntimeId::generate().await`, `RuntimeIdentity::generate(...).await`
+- `AuthorityId::generate().await`, `AuthorityIdentity::generate(...).await`
+- `IdentityContext::new(...)`
 
 ### Example
 
 ```rust,no_run
-use artisan_middleware::identity::NodeIdentity;
+use artisan_middleware::identity::{
+    AuthorityIdentity, AuthorityKind, IdentityContext, NodeId, RuntimeIdentity, WorkloadId,
+    WorkloadIdentity,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ident = NodeIdentity::new().await?;
-    assert!(ident.verify().await);
-    ident.save_to_file()?;
+    let node_id = match NodeId::load().await? {
+        Some(id) => id,
+        None => {
+            let id = NodeId::generate().await?;
+            id.save_to_file()?;
+            id
+        }
+    };
 
-    let loaded = NodeIdentity::load_from_file()?;
-    println!("id={}", loaded.id);
+    let workload_id = WorkloadId::new("payments-api");
+    let workload = WorkloadIdentity::new(node_id, workload_id.clone(), "source-123".into());
+    let runtime = RuntimeIdentity::generate(node_id, workload_id, 1).await?;
+    let authority = AuthorityIdentity::generate(runtime.runtime_id, AuthorityKind::Manager, None).await?;
+
+    let context = IdentityContext::new(node_id, workload, runtime, authority);
+    println!("{:?}", context.runtime.runtime_id);
     Ok(())
 }
 ```

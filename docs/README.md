@@ -10,6 +10,7 @@ These notes summarize the library API from the existing Rust doc comments and gi
 - [04-security-identity-and-auth.md](./04-security-identity-and-auth.md): encryption, node identity, API claims/roles/token types.
 - [05-git-network-and-ops.md](./05-git-network-and-ops.md): git workflows, DNS resolution, notifications, systemd/user helpers.
 - [06-utilities.md](./06-utilities.md): timestamp/version utilities, CLI helpers, historical usage ledger.
+- [07-identity-platform.md](./07-identity-platform.md): identity-domain architecture (`node`, `workload`, `runtime`, `authority`) and migration contract.
 
 ## Module map from `lib.rs`
 

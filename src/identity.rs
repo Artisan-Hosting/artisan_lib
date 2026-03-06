@@ -17,6 +17,10 @@ use crate::{encryption::simple_encrypt, timestamp::current_timestamp};
 #[cfg(target_os = "linux")]
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
+// TODO When we come in here to re-organize, I want to add a field  for a registration date in our identity value and have that contribute to that hash. 
+// TODO I also want to rename the hash to shadow or something similar, I want to use it as a garuntee that a message came from a given node, idk how yet 
+
+
 /// The file path to store the `Identifier` object on disk.
 pub const IDENTITYPATHSTR: &str = "/opt/artisan/.identity";
 

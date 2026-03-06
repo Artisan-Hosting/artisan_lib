@@ -22,6 +22,7 @@ pub mod portal;
 pub mod process_manager;
 #[cfg(target_os = "linux")]
 pub mod resource_monitor;
+pub mod state;
 pub mod state_persistence;
 #[cfg(target_os = "linux")]
 pub mod systemd;
@@ -30,7 +31,7 @@ pub mod timestamp;
 pub mod users;
 pub mod version;
 
-pub const RELEASEINFO: VersionCode = VersionCode::ReleaseCandidate;
+pub const RELEASEINFO: VersionCode = VersionCode::Alpha;
 
 // // tests
 #[path = "../src/tests/encryption.rs"]
@@ -52,6 +53,9 @@ mod state_persistence_test;
 
 #[path = "../src/tests/aggregator.rs"]
 mod aggregator_test;
+
+#[path = "../src/tests/enviornment.rs"]
+mod enviornment_test;
 
 #[cfg(target_os = "linux")]
 #[path = "../src/tests/resource_monitor.rs"]

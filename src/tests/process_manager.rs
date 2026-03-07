@@ -165,6 +165,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_supervised_child_monitor_usage_idempotent() {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("3");
+        let mut supervised_child = SupervisedChild::new(&mut cmd, None)
+            .await
+            .expect("Failed to spawn supervised child");
+
+        supervised_child.monitor_usage().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let first_start_count = supervised_child.resource_watchdog_snapshot().start_count;
+
+        supervised_child.monitor_usage().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let second_start_count = supervised_child.resource_watchdog_snapshot().start_count;
+
+        assert_eq!(
+            first_start_count, second_start_count,
+            "starting monitor twice should not spawn an additional monitor task"
+        );
+
+        supervised_child.kill().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn test_supervised_process_with_invalid_pid() {
         // Use a PID that's likely not valid
         let invalid_pid = 999999;

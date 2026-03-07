@@ -47,7 +47,7 @@ async fn main() {
 
 ### Key functions
 
-- `spawn_simple_process(...)`: spawn with optional stdio capture, updates `AppState`.
+- `spawn_simple_process(...)`: spawn with optional stdio capture, updates `RuntimeState`.
 - `spawn_complex_process(...)`: spawn with optional process-group isolation and monitoring.
 - `SupervisedChild::monitor_usage()`, `monitor_stdx()`, `kill()`.
 - `SupervisedChild::get_metrics()`, `get_std_out()`, `get_std_err()`.

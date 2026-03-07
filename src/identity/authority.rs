@@ -73,6 +73,26 @@ impl AuthorityIdentity {
             expires_at,
         }
     }
+
+    /// Returns true when authority is valid at the provided timestamp.
+    ///
+    /// Validity requires `timestamp >= granted_at` and, when `expires_at` is set,
+    /// `timestamp <= expires_at`.
+    pub fn is_valid_at(&self, timestamp: u64) -> bool {
+        if timestamp < self.granted_at {
+            return false;
+        }
+
+        match self.expires_at {
+            Some(expires_at) => timestamp <= expires_at,
+            None => true,
+        }
+    }
+
+    /// Returns whether authority is valid at the current timestamp.
+    pub fn is_valid_now(&self) -> bool {
+        self.is_valid_at(current_timestamp())
+    }
 }
 
 #[cfg(target_os = "linux")]

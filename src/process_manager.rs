@@ -501,7 +501,7 @@ impl SupervisedChild {
     /// [`JoinHandle::abort()`] on the stored handle.
     pub fn terminate_stdx(&mut self) {
         if let Some(handle) = &self.monitor_std {
-            log!(LogLevel::Trace, "Terminating Standart X monitor");
+            log!(LogLevel::Trace, "Terminating stdout/stderr monitor");
             handle.abort();
             self.monitor_std = None;
             self.stdx_watchdog.mark_stopped();
@@ -646,7 +646,7 @@ impl ChildLock {
 }
 
 /// Spawns a simple child process asynchronously. Optionally captures the child's stdout/stderr,
-/// or inherits them if `capture_output` is false. Updates the application’s [`RuntimeState`]
+/// or inherits them if `capture_output` is false. Updates the workload [`RuntimeState`]
 /// and logs any errors.
 ///
 /// # Arguments

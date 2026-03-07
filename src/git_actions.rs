@@ -171,7 +171,6 @@ impl GitCredentials {
     ///
     /// Returns an `ErrorArrayItem` if serialization, encryption, or file writing fails.
     pub async fn save(&self, path: &PathType) -> Result<(), ErrorArrayItem> {
-        // if the array is empty we delete and re-create the empty file
         if self.clone().to_vec().len() == 0 {
             path.delete()?;
         }
@@ -181,8 +180,7 @@ impl GitCredentials {
             ErrorArrayItem::new(Errors::GeneralError, format!("Serialization error: {}", e))
         })?;
 
-        // Encrypt the JSON data
-        // let encrypted_data = encrypt_text(Stringy::from(&json_data)).await?;
+        // Encrypt the JSON data.
         let encrypted_data = simple_encrypt(json_data.as_bytes())?;
 
         // Write the encrypted data to the file

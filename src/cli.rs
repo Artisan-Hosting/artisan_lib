@@ -21,7 +21,6 @@ pub fn get_user_input(prompt: &str) -> Stringy {
 /// Capture user input from the terminal and encrypts it
 pub async fn get_encrypted_user_input(prompt: &str) -> Result<Stringy, ErrorArrayItem> {
     let user_input: Stringy = get_user_input(prompt);
-    // let data = encrypt_text(user_input).await;
     let data = simple_encrypt(user_input.as_bytes())?;
     Ok(data)
 }
@@ -57,6 +56,5 @@ pub fn get_yes_no(prompt: &str) -> bool {
 }
 
 pub fn clean_screen() {
-    // Clearing screen
     print!("\x1B[2J\x1B[H");
 }

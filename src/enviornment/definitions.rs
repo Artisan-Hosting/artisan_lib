@@ -362,7 +362,6 @@ pub struct Enviornment_V2 {
     pub debug_mode:                 bool, // From AppConfig
     pub log_level:                  LogLevel, // From AppConfig
     pub git:                        Option<GitConfig>, // From AppConfig
-    //pub application_type:       Option<ApplicationType>, // Application for building
     pub execution_user:             ExecutionUser, // Defined user and gid to run a program as
     pub port_range:                 Option<PortRange>,
     pub secret_store:               Option<Vec<(String, String)>>, // Secrets written as environment variables
@@ -749,15 +748,14 @@ impl Enviornment_V2 {
         Ok(Enviornment::V2(self))
     }
 
-    // Returns cipher text of the data
+    /// Returns encrypted bytes of the JSON-encoded V2 payload.
     pub async fn encrypt(&self) -> Result<Vec<u8>, ErrorArrayItem> {
         let data_json: String = self.to_json()?;
         let data_vec = data_json.as_bytes();
-        // unsafe { clean_override_op(encrypt_data, data_vec).await }
         Ok(simple_encrypt(data_vec)?.as_bytes().to_vec())
     }
 
-    // return the json encoded data
+    /// Returns the JSON-encoded V2 payload.
     pub fn to_json(&self) -> Result<String, ErrorArrayItem> {
         serde_json::to_string_pretty(&self).map_err(ErrorArrayItem::from)
     }
@@ -779,7 +777,6 @@ impl Enviornment_V2 {
 
         match data_lines.first() {
             Some(line) if *line == VERSION_TAG_V2 => {
-                // parse the correct version
                 let headerless_data = data_lines[1..].concat();
                 serde_json::from_str(&headerless_data).map_err(ErrorArrayItem::from)
             }

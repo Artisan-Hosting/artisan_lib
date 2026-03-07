@@ -29,8 +29,8 @@ use crate::{encryption::simple_encrypt, timestamp::current_timestamp};
 #[cfg(target_os = "linux")]
 use dusa_collection_utils::platform::functions::{create_hash, truncate};
 
-// TODO When we come in here to re-organize, I want to add a field  for a registration date in our identity value and have that contribute to that hash.
-// TODO I also want to rename the hash to shadow or something similar, I want to use it as a garuntee that a message came from a given node, idk how yet
+// Registration metadata is intentionally omitted for now to keep node identity
+// hash/signature behavior stable during the migration.
 
 /// The file path to store the `Identifier` object on disk.
 pub const IDENTITYPATHSTR: &str = "/opt/artisan/.identity";
@@ -189,6 +189,8 @@ pub struct Identifier {
     pub id: u64,
     /// A truncated hash of `id`. Used for verification of integrity.
     _signature: Stringy,
+    /// Timestamp of when id was created
+    pub timestamp: u64
 }
 
 #[cfg(target_os = "linux")]
@@ -223,6 +225,8 @@ impl Identifier {
     /// ```
     pub async fn new() -> Result<Self, ErrorArrayItem> {
         // ! Using the first 5 out of 31 bits (1..=5) for random datacenter/machine ID
+
+        use crate::timestamp;
         let datacenter_id = rand::thread_rng().gen_range(1..=5);
         let machine_id = rand::thread_rng().gen_range(1..=5);
 
@@ -239,6 +243,7 @@ impl Identifier {
         Ok(Self {
             id,
             _signature: Self::generate_signature(id),
+            timestamp: timestamp::current_timestamp()
         })
     }
 
@@ -440,6 +445,7 @@ impl NodeId {
         Identifier {
             id: self.0,
             _signature: Identifier::generate_signature(self.0),
+            timestamp: current_timestamp()
         }
         .save_to_file()
     }

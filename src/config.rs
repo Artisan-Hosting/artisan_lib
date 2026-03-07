@@ -1,9 +1,6 @@
 use colored::Colorize;
-// src/config.rs
 use config::{Config, ConfigError, Environment, File};
-use dusa_collection_utils::{
-    core::logger::LogLevel, core::types::stringy::Stringy, core::version::SoftwareVersion,
-};
+use dusa_collection_utils::{core::logger::LogLevel, core::types::stringy::Stringy};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt, fs, path::Path};
 
@@ -18,37 +15,46 @@ use crate::{
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct AppConfig {
     /// A name for the application instance.
-    pub app_name: Stringy, // TODO move this to the enviornment_v2 object
-
-    /// Version of the application.
-    // pub version: String,
+    ///
+    /// Transitional legacy field kept for compatibility with older config inputs.
+    pub app_name: Stringy,
 
     /// Maximum ram usage in MB
-    pub max_ram_usage: usize, // TODO move this to the enviornment_v2 object
+    ///
+    /// Transitional legacy field kept for compatibility with older config inputs.
+    pub max_ram_usage: usize,
 
     /// Maximum cpu time usage
     /// This would be practically be used to restart a service
     /// when it gets to it's aloted cpu time. A pricing scale be
     /// set like this.
-    pub max_cpu_usage: usize, // TODO move this to the enviornment_v2 object
+    ///
+    /// Transitional legacy field kept for compatibility with older config inputs.
+    pub max_cpu_usage: usize,
 
     /// The environment the application is running in (e.g., development, staging, production).
     pub environment: Option<Enviornment>,
 
     /// Optional setting for enabling debug mode.
-    pub debug_mode: bool, // TODO move this to the enviornment_v2 object
+    ///
+    /// Transitional legacy field kept for compatibility with older config inputs.
+    pub debug_mode: bool,
 
-    /// Settings for what information is logged
-    pub log_level: LogLevel, // TODO move this to the enviornment_v2 object
+    /// Settings for what information is logged.
+    ///
+    /// Transitional legacy field kept for compatibility with older config inputs.
+    pub log_level: LogLevel,
 
     /// Configuration related to the Git functionality.
-    pub git: Option<GitConfig>, // TODO move this to the enviornment_v2 object
+    ///
+    /// Transitional legacy field kept for compatibility with older config inputs.
+    pub git: Option<GitConfig>,
 
-    /// Configuration related to the database (optional example). // TODO Depricate this field, we don't control db access in this plane any more
+    /// Legacy database section retained for compatibility with older config files.
     pub database: Option<DatabaseConfig>,
 
-    // / Configuration for Aggregator communication  // TODO Depricate this field, we don't use the aggregator any more
-    pub aggregator: Option<Aggregator>, // Add other configuration sections as needed.
+    /// Legacy aggregator section retained for compatibility with older config files.
+    pub aggregator: Option<Aggregator>,
 }
 
 /// Intended/static workload configuration split out from runtime state.
@@ -286,29 +292,19 @@ impl AppConfig {
         // Detect the run mode (e.g., development, production) from the RUN_MODE environment variable.
         let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "development".into());
 
-        let version = serde_json::to_string(&SoftwareVersion::dummy())
-            .map_err(|e| ConfigError::Foreign(Box::new(e)))?;
-
         // Start building the configuration using ConfigBuilder.
         let builder = Config::builder()
             // Set default values.
             .set_default("app_name", "MyApp")?
-            .set_default("version", version)?
             .set_default("max_cpu_usage", 0)?
             .set_default("max_ram_usage", 0)?
-            // .set_default("max_connections", 100)?
             .set_default("environment", "development")?
             .set_default("debug_mode", false)?
             .set_default("log_level", "Info")?
             .set_default("git", None::<String>)?
-            // .set_default("git.default_server", "GitHub")?
-            // .set_default("git.credentials_file", "/opt/artisan/artisan.cf")?
-            // .set_default("git.ssh_key_path", None::<String>)?
             // Set defaults for optional database configuration.
             .set_default("database.url", "postgres://user:password@localhost/dbname")?
             .set_default("database.pool_size", 10)?;
-        // Set defaults for aggregator communication.
-        // .set_default("aggregator", value)?
 
         // Load the default configuration file (Settings.toml).
         let builder = builder.add_source(File::with_name("Overrides").required(false));
@@ -341,34 +337,22 @@ impl AppConfig {
         if self.max_cpu_usage.lt(&10) {
             return Err("The cpu time won't allow the program to run".into());
         }
-        if self.max_cpu_usage.lt(&0) {
-            return Err("Ram limit can't be less that 0".into());
-        }
-        if <std::option::Option<GitConfig> as Clone>::clone(&self.git)
-            .unwrap()
-            .credentials_file
-            .is_empty()
-        {
-            return Err("git.credentials_file must be provided".into());
+        if let Some(git) = &self.git {
+            if git.credentials_file.is_empty() {
+                return Err("git.credentials_file must be provided".into());
+            }
         }
         if self.app_name.is_empty() {
             return Err("app_name must be provided".into());
         }
-        // Add more validation checks as needed.
 
         Ok(())
     }
-
-    // pub fn get_version(&self) -> Result<SoftwareVersion, ErrorArrayItem> {
-    // let version: SoftwareVersion = serde_json::from_str(&self.version)?;
-    // Ok(version)
-    // }
 
     /// Returns a dummy `AppConfig` with hardcoded placeholder values.
     pub fn dummy() -> Self {
         AppConfig {
             app_name: Stringy::from("MyDummyApp"),
-            // version: SoftwareVersion::dummy().to_string(),
             max_ram_usage: 512,
             max_cpu_usage: 80,
             environment: None,
@@ -422,21 +406,8 @@ impl AppConfig {
 
 impl fmt::Display for AppConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // let version = self.get_version().unwrap_or(SoftwareVersion::dummy());
         writeln!(f, "{}:", "AppConfig".bold().underline().purple())?;
         writeln!(f, "  {}: {}", "App Name".bold().cyan(), self.app_name)?;
-        // writeln!(
-        // f,
-        // "  {}: {}",
-        // "Application Version".bold().cyan(),
-        // version.application
-        // )?;
-        // writeln!(
-        // f,
-        // "  {}: {}",
-        // "Library Version".bold().cyan(),
-        // version.library
-        // )?;
         writeln!(f, "  {}: {}", "Log Level".bold().cyan(), self.log_level)?;
         writeln!(f, "  {}: {}", "Ram Limit".bold().cyan(), self.max_ram_usage)?;
         writeln!(

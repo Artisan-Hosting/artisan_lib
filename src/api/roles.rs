@@ -71,6 +71,3 @@ pub fn has_org_permission(current_role: Role, required_role: Role) -> bool {
         _ => false,                                 // Otherwise, no access
     }
 }
-
-// TODO add a super user. I SHOULD GET A NOTIFICATION AND HELLA LOGS WHEN SU EXECUTES A COMMAND
-// TODO said super user shoud be able to do both user and admin only things

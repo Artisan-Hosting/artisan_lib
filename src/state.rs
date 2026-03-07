@@ -6,6 +6,7 @@ use crate::{aggregator::Status, config::WorkloadConfig, identity::IdentityContex
 
 /// Runtime-only state for a workload generation.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct RuntimeState {
     pub name: String,
     pub version: SoftwareVersion,
@@ -40,6 +41,7 @@ impl fmt::Display for RuntimeState {
 
 /// Snapshot view composed of identity, static config, runtime state, and custom payload.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct WorkloadSnapshot {
     pub identity: IdentityContext,
     pub config: WorkloadConfig,

@@ -19,17 +19,19 @@
 
 ### Main structures
 
-- `AppState`: persisted runtime state (status, pid, counters, logs, config).
+- `RuntimeState`: runtime-only workload state (status, pid, counters, logs, stdio).
+- `WorkloadSnapshot`: persisted composition of identity + config + runtime + optional custom data.
 - `StatePersistence`: encrypted save/load helpers.
 
 ### Key functions
 
 - `StatePersistence::get_state_path(state_name)`
 - `save_state(state, path).await` / `load_state(path).await`
+- `save_snapshot(snapshot, path).await` / `load_snapshot(path).await`
 - `update_state(state, path, metrics).await`
 - `wind_down_state(state, path).await`
 - `log_error(state, err, path).await`
-- `debug_log_set(state)`
+- `debug_log_set(config)`
 
 ### Example
 
@@ -105,11 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## `config_bundle` module
 
-`ApplicationConfig` is a convenience wrapper around:
+`WorkloadSnapshot` is the convenience composition around:
 
-- runtime `AppState`
+- runtime `RuntimeState`
 - static `WorkloadConfig`
-- optional `Enviornment`
+- identity context
 - optional service-specific JSON config
 
-Useful methods: `get_name`, `get_status`, `set_status`, `get_pid`, `set_pid`, `update_state`, `update_error_log`, `update_timestamp`.
+Useful methods: `get_name`, `get_status`, `set_status`, `get_pid`, `set_pid`, `update_runtime`, `update_error_log`, `update_timestamp`.

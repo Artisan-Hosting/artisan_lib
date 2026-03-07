@@ -3,6 +3,7 @@ use dusa_collection_utils::core::logger::{set_log_level, LogLevel};
 use dusa_collection_utils::core::types::pathtype::PathType;
 use dusa_collection_utils::core::types::stringy::Stringy;
 use dusa_collection_utils::log;
+use std::collections::HashSet;
 use std::fs;
 
 use crate::aggregator::{Metrics, Status};
@@ -15,6 +16,37 @@ use crate::timestamp::current_timestamp;
 pub struct StatePersistence;
 
 impl StatePersistence {
+    fn validate_top_level_fields(
+        cipher_string: &str,
+        allowed_fields: &[&str],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let value: toml::Value = toml::from_str(cipher_string)?;
+        let table = value.as_table().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "State payload is not a TOML table",
+            )
+        })?;
+        let allowed: HashSet<&str> = allowed_fields.iter().copied().collect();
+        let unknown_fields: Vec<String> = table
+            .keys()
+            .filter(|key| !allowed.contains(key.as_str()))
+            .cloned()
+            .collect();
+
+        if unknown_fields.is_empty() {
+            return Ok(());
+        }
+
+        Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "Unknown fields in state payload: {}",
+                unknown_fields.join(", ")
+            ),
+        )))
+    }
+
     /// Derives the default save path for the runtime state using `/opt/artisan/tmp/.<state_name>.state`.
     pub fn get_state_path(state_name: &str) -> PathType {
         PathType::Content(format!("/opt/artisan/tmp/.{}.state", state_name))
@@ -52,6 +84,24 @@ impl StatePersistence {
             )
         })?;
 
+        Self::validate_top_level_fields(
+            &cipher_string,
+            &[
+                "name",
+                "version",
+                "data",
+                "status",
+                "pid",
+                "last_updated",
+                "started_at",
+                "event_counter",
+                "error_log",
+                "system_application",
+                "stdout",
+                "stderr",
+            ],
+        )?;
+
         let state: RuntimeState = toml::from_str(&cipher_string)?;
         Ok(state)
     }
@@ -85,6 +135,11 @@ impl StatePersistence {
                 "Failed to convert to string",
             )
         })?;
+
+        Self::validate_top_level_fields(
+            &cipher_string,
+            &["identity", "config", "runtime", "custom"],
+        )?;
 
         let snapshot: WorkloadSnapshot = toml::from_str(&cipher_string)?;
         Ok(snapshot)

@@ -16,14 +16,14 @@ use crate::{
     config::WorkloadConfig,
     enviornment::definitions::{Enviornment, Enviornment_V1, Enviornment_V2},
     git_actions::GitCredentials,
-    identity::Identifier,
+    identity::{NodeId, WorkloadId},
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum PortalMessage {
     Discover,
     IdRequest,
-    IdResponse(Option<Identifier>),
+    IdResponse(Option<NodeId>),
     RegisterRequest(ManagerData),
     RegisterResponse(bool),
     Error(String),
@@ -31,16 +31,16 @@ pub enum PortalMessage {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProjectInfo {
-    pub project_id: Stringy,
-    pub identity: Identifier,
-    pub project_data: AppStatus,
+    pub workload_id: WorkloadId,
+    pub node_id: NodeId,
+    pub workload_data: AppStatus,
 }
 
 #[cfg(target_os = "linux")]
 impl ProjectInfo {
     #[allow(deprecated)]
     pub fn get_id(&self) -> Stringy {
-        let data = format!("{}-{}", self.identity.id, self.project_data.get_id());
+        let data = format!("{}-{}", self.node_id.0, self.workload_id.0);
         let bytes = data.into_bytes();
         let compressed = match compress(&bytes, None, false) {
             Ok(data) => data,
@@ -141,8 +141,8 @@ pub struct ErrorInfo {
 /// timestamps such as creation and last update times.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NodeInfo {
-    /// A custom identifier object containing the node’s unique ID or name.
-    pub identity: Identifier,
+    /// Durable node identifier.
+    pub node_id: NodeId,
 
     /// The host name of the machine or VM.
     pub hostname: Stringy,
@@ -172,7 +172,7 @@ impl NodeInfo {
     /// This can be used for diagnostic logging, generating labels, or other reference points.
     /// The string is truncated to 20 characters for brevity.
     pub fn get_stringy(&self) -> Stringy {
-        let data = format!("{}_-_{}", self.ip_address, self.identity.id);
+        let data = format!("{}_-_{}", self.ip_address, self.node_id.0);
         let hash = create_hash(data);
         truncate(&*hash, 20).to_owned()
     }
@@ -184,8 +184,8 @@ impl NodeInfo {
 /// about the system version, uptime, etc.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NodeDetails {
-    /// A custom identifier object containing the node’s unique ID or name.
-    pub identity: Identifier,
+    /// Durable node identifier.
+    pub node_id: NodeId,
 
     /// The node’s current health or operational state (e.g., `"healthy"`, `"degraded"`).
     pub status: Status,
@@ -212,7 +212,7 @@ impl NodeDetails {
     /// This can be used to produce a unique but compact identifier for logging
     /// or referencing node details. The string is truncated to 20 characters.
     pub fn get_stringy(&self) -> Stringy {
-        let data = format!("{}_-_{}", self.manager_data.address, self.identity.id);
+        let data = format!("{}_-_{}", self.manager_data.address, self.node_id.0);
         let hash = create_hash(data);
         truncate(&*hash, 20).to_owned()
     }
@@ -224,9 +224,8 @@ impl NodeDetails {
 /// about the node’s environment and software state.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagerData {
-    /// The manager’s own identity object.
-    /// Useful when multiple managers oversee different sets of nodes.
-    pub identity: Identifier,
+    /// Durable node identifier for the manager host.
+    pub node_id: NodeId,
 
     /// The software version of the manager controlling this node.
     pub version: SoftwareVersion,
@@ -261,7 +260,7 @@ impl ManagerData {
     /// Can be used for labeling or logging purposes. The resulting string is truncated
     /// to 20 characters for readability.
     pub fn get_stringy(&self) -> Stringy {
-        let data = format!("{}_-_{}", self.address, self.identity.id);
+        let data = format!("{}_-_{}", self.address, self.node_id.0);
         let hash = create_hash(data);
         truncate(&*hash, 20).to_owned()
     }
@@ -407,16 +406,14 @@ pub struct RunnerHealth {
 pub struct RunnerLogs {
     /// A list of recent log messages, including timestamps and textual data.
     pub recent: Vec<LogEntry>,
-    // TODO Implement a log endpoint system for each instance, oneday
-    // pub log_endpoint: String,
 }
 
-// TODO Document
+/// Network transfer totals for a runner instance.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, PartialOrd, Eq, Ord)]
 pub struct NetworkStats {
     pub rx_bytes: u64,
     pub tx_bytes: u64,
-    pub note: Option<String>, // Future expansion
+    pub note: Option<String>,
 }
 
 // =============================================================================

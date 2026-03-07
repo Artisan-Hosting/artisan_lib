@@ -48,7 +48,7 @@ fn main() {
 ### Key functions
 
 - `UsageLedger::new()`
-- `update_application_usage(app_id, metrics)`
+- `update_workload_usage(workload_id, metrics)`
 - `persist_to_disk(path)` / `load_from_disk(path)`
 
 ### Example
@@ -60,8 +60,8 @@ use artisan_middleware::historics::UsageLedger;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ledger = UsageLedger::new();
-    ledger.update_application_usage(
-        Stringy::from("app-1"),
+    ledger.update_workload_usage(
+        Stringy::from("workload-1"),
         Metrics { cpu_usage: 10.0, memory_usage: 256.0, other: None },
     );
     ledger.persist_to_disk("/tmp/usage_ledger.json")?;

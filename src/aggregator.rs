@@ -1,23 +1,23 @@
 //! # Manager Data Module
 //!
 //! This module provides structures, enums, and functions for managing and
-//! communicating application states in the AIS Manager system. It includes
+//! communicating workload states in the AIS Manager system. It includes
 //! mechanisms for encrypting/decrypting data, sending/receiving messages
-//! through Unix sockets, and storing application status information locally.
+//! through Unix sockets, and storing workload status information locally.
 //!
 //! ## Overview
 //! - **CommandType**: Represents different commands (Start, Stop, Restart, etc.).
-//! - **Status**: Represents the lifecycle states of an application (Starting, Running, etc.).
-//! - **Command**: Used for issuing a command to an application.
+//! - **Status**: Represents workload lifecycle states (Starting, Running, etc.).
+//! - **Command**: Used for issuing a command to a workload.
 //! - **Metrics**: Holds runtime metrics (CPU, memory usage, etc.).
-//! - **AppStatus**: A snapshot of an application's current state.
+//! - **AppStatus**: A snapshot of a workload's current state.
 //! - **CommandResponse**: A response from the system after processing a command.
 //! - **RegisterApp / DeregisterApp / UpdateApp**: Messages used for registering,
-//!   deregistering, or updating an application's status.
+//!   deregistering, or updating workload status.
 //! - **AppMessage**: Aggregates all message variants (Register, Deregister, Update, etc.).
 //! - **save_registered_apps / load_registered_apps**: Handle storing and loading of
 //!   `AppStatus` data locally.
-//! - **register_app**: Registers an application with a remote aggregator if configured.
+//! - **register_app**: Registers a workload with a remote aggregator if configured.
 
 use chrono::Utc;
 use colored::Colorize;
@@ -42,20 +42,18 @@ use tokio::sync::broadcast;
 use tokio::time::interval;
 
 use crate::encryption::{simple_decrypt, simple_encrypt};
+use crate::identity::{RuntimeId, WorkloadId};
 use crate::portal::{ManagerData, ProjectInfo};
 use crate::state::WorkloadSnapshot;
 
 /// Path where the aggregator stores AIS Manager data.
 pub const AGGREGATOR_PATH: &str = "/opt/artisan/tmp/.ais_manager_data";
 
-/// A convenience type alias for string-based identifiers in this module.
-type ID = Stringy;
-
 //
 // Enums
 //
 
-/// Represents different commands that can be sent to an application.
+/// Represents different commands that can be sent to a workload.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandType {
     /// Instructs the application to start.
@@ -88,7 +86,7 @@ impl fmt::Display for CommandType {
     }
 }
 
-/// Represents different lifecycle states an application can be in.
+/// Represents different lifecycle states a workload can be in.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Status {
     /// The application is in the process of starting.
@@ -129,12 +127,12 @@ impl fmt::Display for Status {
 // Structs
 //
 
-/// Represents a command that can be issued to an application, including the
-/// application identifier, command type, and timestamp.
+/// Represents a command that can be issued to a workload, including the
+/// workload identifier, command type, and timestamp.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
-    /// The unique identifier of the target application.
-    pub app_id: ID,
+    /// The unique identifier of the target workload.
+    pub workload_id: WorkloadId,
     /// The type of command (start, stop, custom, etc.).
     pub command_type: CommandType,
     /// A Unix timestamp marking when the command was created.
@@ -146,8 +144,8 @@ impl fmt::Display for Command {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Workload ID".bold().cyan(),
+            self.workload_id.0,
             "Command Type".bold().cyan(),
             self.command_type,
             "Timestamp".bold().cyan(),
@@ -165,14 +163,12 @@ pub struct NetworkUsage {
 
 impl NetworkUsage {
     pub fn set(&mut self, other: &Self) {
-        // self.rx_bytes += other.rx_bytes;
-        // self.tx_bytes += other.tx_bytes;
         self.rx_bytes = other.rx_bytes;
         self.tx_bytes = other.tx_bytes;
     }
 }
 
-/// Contains runtime metrics for an application, such as CPU and memory usage.
+/// Contains runtime metrics for a workload, such as CPU and memory usage.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metrics {
     /// CPU usage in percent.
@@ -503,7 +499,6 @@ pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(
 pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
     create_dir_all(&output_dir).unwrap();
     tokio::spawn(async move {
-        // let mut tick = interval(Duration::from_secs(30)); // every 5 min
         let mut tick = interval(Duration::from_secs(300)); // every 5 min
         loop {
             tick.tick().await;
@@ -599,22 +594,24 @@ pub async fn flush_metrics_to_disk(
     Ok(())
 }
 
-/// Represents a snapshot of an application’s state, including status, version, metrics, etc.
+/// Represents a snapshot of a workload's state, including status, version, metrics, etc.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppStatus {
-    /// Unique identifier for the application.
-    pub app_id: ID,
-    /// Additional identifier (often a Git commit SHA or branch).
-    pub git_id: ID,
-    /// Runtime and config snapshot data associated with this application.
-    pub app_data: WorkloadSnapshot,
-    /// The reported uptime of the instance
+    /// Stable logical workload identity.
+    pub workload_id: WorkloadId,
+    /// Identity derived from source metadata (e.g. git identity).
+    pub source_id: Stringy,
+    /// Runtime generation identity for this status report.
+    pub runtime_id: RuntimeId,
+    /// Runtime and config snapshot data associated with this workload.
+    pub workload_snapshot: WorkloadSnapshot,
+    /// The reported uptime of the instance.
     pub uptime: Option<u64>,
-    /// A list of errors encountered by the application.
+    /// Runtime metrics observed for the workload.
     pub metrics: Option<Metrics>,
     /// The Unix timestamp when this status was recorded.
     pub timestamp: u64,
-    /// The expected status set for this application (Running, Stopped, etc.).
+    /// The expected status set for this workload (Running, Stopped, etc.).
     pub expected_status: Status,
 }
 
@@ -642,15 +639,15 @@ impl AppStatus {
         serde_json::to_string(self).unwrap_unchecked()
     }
 
-    /// Returns the `app_id` (primary identifier).
-    pub fn get_id(&self) -> Stringy {
-        self.app_id.clone()
+    /// Returns the workload identifier (primary identifier).
+    pub fn get_id(&self) -> WorkloadId {
+        self.workload_id.clone()
     }
 }
 
 impl fmt::Display for AppStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let system = match self.app_data.is_system_application() {
+        let system = match self.workload_snapshot.is_system_application() {
             true => "YES".bold().green(),
             false => "NO".bold().red(),
         };
@@ -658,8 +655,8 @@ impl fmt::Display for AppStatus {
         write!(
             f,
             "{}: {}, {}: {} seconds, {}: {}, {}: {}, {}: {}, {} {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Workload ID".bold().cyan(),
+            self.workload_id.0,
             "Uptime".bold().cyan(),
             self.uptime.unwrap_or(0),
             "Metrics".bold().cyan(),
@@ -668,7 +665,10 @@ impl fmt::Display for AppStatus {
                 .map(|m| m.to_string())
                 .unwrap_or_else(|| "None".to_string()),
             "State Data".bold().cyan(),
-            format!("{}\n{}", self.app_data.runtime, self.app_data.config),
+            format!(
+                "{}\n{}",
+                self.workload_snapshot.runtime, self.workload_snapshot.config
+            ),
             "Timestamp".bold().cyan(),
             self.timestamp,
             "System App".bold().cyan(),
@@ -680,8 +680,8 @@ impl fmt::Display for AppStatus {
 /// A response structure returned after processing a command.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommandResponse {
-    /// The unique identifier of the target application.
-    pub app_id: ID,
+    /// The unique identifier of the target workload.
+    pub workload_id: WorkloadId,
     /// The type of command that was processed.
     pub command_type: CommandType,
     /// Indicates whether the command was successful.
@@ -695,8 +695,8 @@ impl fmt::Display for CommandResponse {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Workload ID".bold().cyan(),
+            self.workload_id.0,
             "Command Type".bold().cyan(),
             self.command_type,
             "Success".bold().cyan(),
@@ -711,14 +711,14 @@ impl fmt::Display for CommandResponse {
     }
 }
 
-/// Used to register a new application with the system (local or aggregator).
+/// Used to register a new workload with the system (local or aggregator).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegisterApp {
-    /// A unique identifier for the application to be registered.
-    pub app_id: ID,
-    /// Human-readable name of the application.
+    /// Stable identifier for the workload to be registered.
+    pub workload_id: WorkloadId,
+    /// Human-readable name of the workload.
     pub app_name: String,
-    /// The status that we expect the application to have once registered.
+    /// The status that we expect the workload to have once registered.
     pub expected_status: Status,
     /// Indicates if this application is part of system processes.
     pub system_application: bool,
@@ -731,8 +731,8 @@ impl fmt::Display for RegisterApp {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Workload ID".bold().cyan(),
+            self.workload_id.0,
             "App Name".bold().cyan(),
             self.app_name,
             "Expected Status".bold().cyan(),
@@ -743,11 +743,11 @@ impl fmt::Display for RegisterApp {
     }
 }
 
-/// Used to deregister an application from the system (local or aggregator).
+/// Used to deregister a workload from the system (local or aggregator).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeregisterApp {
-    /// Unique identifier of the application being deregistered.
-    pub app_id: ID,
+    /// Unique identifier of the workload being deregistered.
+    pub workload_id: WorkloadId,
     /// Timestamp when deregistration was requested.
     pub deregistration_timestamp: u64,
 }
@@ -757,20 +757,20 @@ impl fmt::Display for DeregisterApp {
         write!(
             f,
             "{}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Workload ID".bold().cyan(),
+            self.workload_id.0,
             "Deregistration Timestamp".bold().cyan(),
             self.deregistration_timestamp
         )
     }
 }
 
-/// A message for updating an application's status, errors, and metrics.
+/// A message for updating a workload's status, errors, and metrics.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UpdateApp {
-    /// Identifier of the application to be updated.
-    pub app_id: ID,
-    /// A list of errors encountered by the application, if any.
+    /// Identifier of the workload to be updated.
+    pub workload_id: WorkloadId,
+    /// A list of errors encountered by the workload, if any.
     pub error: Option<Vec<ErrorArrayItem>>,
     /// Updated metrics (CPU, memory, etc.).
     pub metrics: Option<Metrics>,
@@ -785,8 +785,8 @@ impl fmt::Display for UpdateApp {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Workload ID".bold().cyan(),
+            self.workload_id.0,
             "Status".bold().cyan(),
             self.status,
             "Error".bold().cyan(),
@@ -810,19 +810,19 @@ impl fmt::Display for UpdateApp {
     }
 }
 
-/// Encapsulates different message variants related to application registration,
+/// Encapsulates different message variants related to workload registration,
 /// updates, and aggregator communication.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AppMessage {
-    /// Register a new application.
+    /// Register a new workload.
     Register(RegisterApp),
-    /// Deregister an existing application.
+    /// Deregister an existing workload.
     Deregister(DeregisterApp),
-    /// Update an existing application’s status, metrics, etc.
+    /// Update an existing workload's status, metrics, etc.
     Update(UpdateApp),
     /// A response to a previously-issued command.
     Response(CommandResponse),
-    /// A command targeted at an application.
+    /// A command targeted at a workload.
     Command(Command),
     /// Manager-level information data.
     ManagerInfo(ManagerData),
@@ -864,7 +864,6 @@ pub async fn save_registered_apps(apps: &[AppStatus]) -> Result<(), ErrorArrayIt
         .open(AGGREGATOR_PATH)
         .map_err(ErrorArrayItem::from)?;
     let data: String = serde_json::to_string_pretty(apps).map_err(ErrorArrayItem::from)?;
-    // let encrypted_data: Stringy = encrypt_text(data.into()).await?;
     let encrypted_data: Stringy = simple_encrypt(data.as_bytes())?;
     match file.write_all(encrypted_data.as_bytes()) {
         Ok(_) => Ok(()),
@@ -885,7 +884,6 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     let mut encrypted_data: String = String::new();
     file.read_to_string(&mut encrypted_data)?;
 
-    // let data: Stringy = decrypt_text(Stringy::from(encrypted_data)).await?;
     let data: Stringy = simple_decrypt(encrypted_data.as_bytes()).map(
         |data| -> Result<Stringy, ErrorArrayItem> {
             let d = String::from_utf8(data)
@@ -899,8 +897,6 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
     for app in apps.clone() {
         log!(LogLevel::Debug, "App Status from file: {} \n", app);
     }
-    // Clearing screen can be done if needed:
-    // print!("\x1B[2J\x1B[H");
     Ok(apps)
 }
 
@@ -914,11 +910,7 @@ pub async fn load_registered_apps() -> Result<Vec<AppStatus>, ErrorArrayItem> {
 /// Returns an `AppContext` to be passed throughout the application.
 pub async fn initialize_app_context(
     output_dir: PathType,
-) -> (
-    AppContext,
-    broadcast::Receiver<ProjectInfo>,
-    // tokio::sync::mpsc::UnboundedReceiver<ProjectInfo>,
-) {
+) -> (AppContext, broadcast::Receiver<ProjectInfo>) {
     let usage_map: UsageMap = LockWithTimeout::new(HashMap::new());
     let (metrics_tx, mut metrics_rx) = broadcast::channel::<LiveMetrics>(2048);
     let (project_tx, project_rx) = broadcast::channel::<ProjectInfo>(2048);

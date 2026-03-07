@@ -16,24 +16,27 @@ pub struct HistoricalUsage {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UsageLedger {
-    pub applications: HashMap<Stringy, HistoricalUsage>, // PID-based for now
+    pub workloads: HashMap<Stringy, HistoricalUsage>, // PID-based for now
 }
 
 impl UsageLedger {
     pub fn new() -> Self {
         Self {
-            applications: HashMap::new(),
+            workloads: HashMap::new(),
         }
     }
 
-    pub fn update_application_usage(&mut self, app_id: Stringy, current: Metrics) {
-        let entry = self.applications.entry(app_id).or_insert(HistoricalUsage {
-            total_cpu_time: 0.0,
-            total_memory_bytes: 0,
-            total_net_rx: 0,
-            total_net_tx: 0,
-            last_metrics: None,
-        });
+    pub fn update_workload_usage(&mut self, workload_id: Stringy, current: Metrics) {
+        let entry = self
+            .workloads
+            .entry(workload_id)
+            .or_insert(HistoricalUsage {
+                total_cpu_time: 0.0,
+                total_memory_bytes: 0,
+                total_net_rx: 0,
+                total_net_tx: 0,
+                last_metrics: None,
+            });
 
         if let Some(last) = &entry.last_metrics {
             let cpu_delta = (current.cpu_usage - last.cpu_usage).max(0.0) as f64;

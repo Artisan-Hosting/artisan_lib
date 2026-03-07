@@ -93,6 +93,7 @@ Key behavior:
 
 - allows bounded authority sessions via `expires_at`
 - ties authority to a specific `runtime_id`
+- validity checks are available via `AuthorityIdentity::is_valid_at(...)` and `is_valid_now()`
 
 Use this to prevent split-brain state publishing.
 
@@ -176,8 +177,12 @@ fn example(auth: &GitAuth) {
 }
 ```
 
-## Migration status note
+## Migration status
 
-The identity platform types are now split by concern and available for adoption.
+Identity-domain types are split and active across the main runtime paths.
 
-Some call sites in aggregator/portal/process/state still use legacy naming and will be migrated in later steps of `docs/implementation-plan-identity-reorg.md`.
+Current library status:
+
+- Aggregator and portal payloads use `workload_id` / `source_id` / `runtime_id` / `node_id` naming.
+- Process supervision and state mutation call sites use `RuntimeState`/`WorkloadSnapshot` interfaces.
+- Persistence uses runtime/snapshot schemas only, with strict top-level field validation on load.

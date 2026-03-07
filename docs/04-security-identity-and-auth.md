@@ -51,6 +51,7 @@ For full architecture details, see [07-identity-platform.md](./07-identity-platf
 - `WorkloadId::new(...)`, `WorkloadId::from_git_auth(...)`
 - `RuntimeId::generate().await`, `RuntimeIdentity::generate(...).await`
 - `AuthorityId::generate().await`, `AuthorityIdentity::generate(...).await`
+- `AuthorityIdentity::is_valid_at(...)`, `AuthorityIdentity::is_valid_now()`
 - `IdentityContext::new(...)`
 
 ### Example

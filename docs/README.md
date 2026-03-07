@@ -5,8 +5,8 @@ These notes summarize the library API from the existing Rust doc comments and gi
 ## Doc set
 
 - [01-runtime-control.md](./01-runtime-control.md): async pause/resume control, supervised processes, watchdog monitoring.
-- [02-aggregation-and-messaging.md](./02-aggregation-and-messaging.md): metrics aggregation, app status/messages, portal-facing models.
-- [03-state-config-and-environment.md](./03-state-config-and-environment.md): config loading, encrypted state persistence, environment payloads.
+- [02-aggregation-and-messaging.md](./02-aggregation-and-messaging.md): metrics aggregation, workload status/messages, portal-facing models.
+- [03-state-config-and-environment.md](./03-state-config-and-environment.md): config loading, encrypted runtime/snapshot persistence, environment payloads.
 - [04-security-identity-and-auth.md](./04-security-identity-and-auth.md): encryption, node identity, API claims/roles/token types.
 - [05-git-network-and-ops.md](./05-git-network-and-ops.md): git workflows, DNS resolution, notifications, systemd/user helpers.
 - [06-utilities.md](./06-utilities.md): timestamp/version utilities, CLI helpers, historical usage ledger.

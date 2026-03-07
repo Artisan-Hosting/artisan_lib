@@ -21,6 +21,13 @@
 - `save_registered_apps(apps).await` / `load_registered_apps().await`
 - `initialize_app_context(output_dir).await`
 
+### Current identity-aware payload fields
+
+- `Command`: `workload_id`, `command_type`, `timestamp`
+- `AppStatus`: `workload_id`, `source_id`, `runtime_id`, `workload_snapshot`, `uptime`, `metrics`, `timestamp`, `expected_status`
+- `CommandResponse`: `workload_id`, `command_type`, `success`, `message`
+- `RegisterApp` / `DeregisterApp` / `UpdateApp`: use `workload_id` as the target identifier
+
 ### Example: feed live metrics
 
 ```rust,no_run
@@ -71,6 +78,12 @@ Primary transport/data models for manager-node-runner API payloads.
 - Runner models: `RunnerSummary`, `RunnerDetails`, `RunnerHealth`, `RunnerLogs`
 - Command/log models: `CommandRequest`, `CommandResponse`, `CommandStatusResponse`, `LogEntry`, `NodeLogs`, `RunnerLogResponse`, `InstanceLogResponse`
 - Discovery/registration message: `PortalMessage`, `ProjectInfo`
+
+### Current portal identity fields
+
+- `PortalMessage::IdResponse(Option<NodeId>)`
+- `ProjectInfo`: `workload_id`, `node_id`, `workload_data`
+- `NodeInfo` / `NodeDetails` / `ManagerData`: `node_id`
 
 ### Example envelope
 

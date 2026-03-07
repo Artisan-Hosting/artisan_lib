@@ -4,6 +4,7 @@
 
 ### Main structures
 
+- `AppConfig` (legacy/transitional compatibility type)
 - `WorkloadConfig`
 - `GitConfig`
 - `DatabaseConfig`
@@ -32,6 +33,12 @@
 - `wind_down_state(state, path).await`
 - `log_error(state, err, path).await`
 - `debug_log_set(config)`
+
+### Persistence format note
+
+- State persistence is a hard-cut schema: runtime state (`RuntimeState`) and snapshot (`WorkloadSnapshot`) are persisted independently.
+- Legacy mixed `AppState` payloads are not supported by the active loader paths.
+- Unknown top-level fields in persisted TOML are rejected during load.
 
 ### Example
 

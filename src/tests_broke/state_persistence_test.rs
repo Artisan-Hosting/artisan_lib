@@ -43,7 +43,7 @@ mod tests {
 
         // Use a temporary directory to store the state file
         let dir = tempdir().unwrap();
-        let path: PathType = dir.path().join("test_state.toml").into();
+        let path: PathType = dir.path().join("test_state.json").into();
         println!("Temporary state path: {:?}", &path);
 
         // Save the state
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn test_load_non_existent_file() {
         // Try loading from a non-existent file
-        let path: PathType = PathBuf::from("non_existent_file.toml").into();
+        let path: PathType = PathBuf::from("non_existent_file.json").into();
         let load_result = StatePersistence::load_state(&path);
         assert!(
             load_result.is_err(),
@@ -85,10 +85,10 @@ mod tests {
     fn test_invalid_data_format() {
         // Use a temporary directory to create an invalid state file
         let dir = tempdir().unwrap();
-        let path: PathType = dir.path().join("invalid_state.toml").into();
+        let path: PathType = dir.path().join("invalid_state.json").into();
 
         // Write invalid data to the file
-        fs::write(&path, "this is not valid encrypted or TOML data").unwrap();
+        fs::write(&path, "this is not valid encrypted or JSON data").unwrap();
 
         // Try loading the state
         let load_result = StatePersistence::load_state(&path);

@@ -267,8 +267,8 @@ impl StatePersistence {
         PathType::Content(format!("/tmp/.{}.state", config.app_name))
     }
 
-    /// Saves the provided [`AppState`] to the specified `path`.  
-    /// The data is serialized to TOML, then encrypted with [`simple_encrypt`].
+    /// Saves the provided [`AppState`] to the specified `path`.
+    /// The data is serialized to JSON, then encrypted with [`simple_encrypt`].
     ///
     /// # Errors
     /// - Returns an `Err` if serialization, encryption, or writing to the file fails.
@@ -276,8 +276,8 @@ impl StatePersistence {
         state: &AppState,
         path: &PathType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let toml_str: Stringy = toml::to_string(state)?.into();
-        let state_data = simple_encrypt(toml_str.as_bytes()).map_err(|e| {
+        let json_str: Stringy = serde_json::to_string(state)?.into();
+        let state_data = simple_encrypt(json_str.as_bytes()).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, e.err_mesg.to_string())
         })?;
 
@@ -285,11 +285,11 @@ impl StatePersistence {
         Ok(())
     }
 
-    /// Loads an [`AppState`] from the specified `path`.  
-    /// Reads the file, then decrypts it with [`simple_decrypt`], and finally deserializes from TOML.
+    /// Loads an [`AppState`] from the specified `path`.
+    /// Reads the file, then decrypts it with [`simple_decrypt`], and finally deserializes from JSON.
     ///
     /// # Errors
-    /// - Returns an `Err` if decryption or TOML deserialization fails, or if the file is unreadable.
+    /// - Returns an `Err` if decryption or JSON deserialization fails, or if the file is unreadable.
     pub async fn load_state(path: &PathType) -> Result<AppState, Box<dyn std::error::Error>> {
         let encrypted_content: Stringy = fs::read_to_string(path)?.into();
         let content = simple_decrypt(encrypted_content.as_bytes()).map_err(|_| {
@@ -303,7 +303,7 @@ impl StatePersistence {
             )
         })?;
 
-        let state: AppState = toml::from_str(&cipher_string)?;
+        let state: AppState = serde_json::from_str(&cipher_string)?;
         Ok(state)
     }
 }

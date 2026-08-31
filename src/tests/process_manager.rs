@@ -12,6 +12,7 @@ mod tests {
     use dusa_collection_utils::core::version::SoftwareVersion;
     use nix::unistd::Pid;
     use std::path::PathBuf;
+    use std::process::Stdio;
     use std::time::Duration;
     use tokio::process::Command;
 
@@ -401,5 +402,72 @@ mod tests {
         // Kill it
         child.child.kill().await.expect("Failed to kill child");
         assert!(!ChildLock::running(pid as i32), "Child should be dead");
+    }
+
+    /// Test that verifies stdout/stderr capture functionality works
+    #[tokio::test]
+    async fn test_stdout_stderr_capture() {
+        // Create a process that outputs to stdout and stderr
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+           .arg(r#"echo "stdout test line"; echo "stderr test line" >&2"#)
+           .stdout(Stdio::piped())
+           .stderr(Stdio::piped());
+
+        // Spawn the process
+        let mut supervised_child = SupervisedChild::new(&mut cmd, None).await.unwrap();
+
+        // Monitor the process
+        supervised_child.monitor_usage().await;
+        
+        // Start monitoring stdout/stderr
+        supervised_child.monitor_stdx().await;
+        
+        // Give the monitoring threads time to capture data
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        
+        // Check that data was captured
+        let stdout_lines = supervised_child.get_std_out().await.unwrap();
+        let stderr_lines = supervised_child.get_std_err().await.unwrap();
+        
+        // Verify that data exists (should have at least one complete line)
+        assert!(!stdout_lines.is_empty(), "Expected stdout to contain data");
+        assert!(!stderr_lines.is_empty(), "Expected stderr to contain data");
+        
+        // Cleanup
+        supervised_child.kill().await.unwrap();
+    }
+
+    /// Test with a long-running process that continuously outputs
+    #[tokio::test]
+    async fn test_long_running_process_capture() {
+        // Create a long-running process that outputs data
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+           .arg(r#"for i in 1 2 3 4 5; do echo "output $i"; echo "error $i" >&2; sleep 0.5; done"#)
+           .stdout(Stdio::piped())
+           .stderr(Stdio::piped());
+
+        let mut supervised_child = SupervisedChild::new(&mut cmd, None).await.unwrap();
+
+        // Monitor the process
+        supervised_child.monitor_usage().await;
+        
+        // Start monitoring stdout/stderr
+        supervised_child.monitor_stdx().await;
+        
+        // Give time for capturing
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+        
+        // Verify that some data was captured
+        let stdout_lines = supervised_child.get_std_out().await.unwrap();
+        let stderr_lines = supervised_child.get_std_err().await.unwrap();
+        
+        // Verify we got multiple lines
+        assert!(!stdout_lines.is_empty(), "Expected stdout to contain data");
+        assert!(!stderr_lines.is_empty(), "Expected stderr to contain data");
+        
+        // Cleanup
+        supervised_child.kill().await.unwrap();
     }
 }

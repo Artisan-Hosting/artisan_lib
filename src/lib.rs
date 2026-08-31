@@ -36,15 +36,19 @@ pub const RELEASEINFO: VersionCode = VersionCode::Alpha;
 // // tests
 #[path = "../src/tests/encryption.rs"]
 mod encryption_test;
+#[cfg(target_os = "linux")]
 #[path = "../src/tests/process_manager.rs"]
 mod process_manager_test;
 
+#[cfg(target_os = "linux")]
 #[path = "../src/tests/identity.rs"]
 mod identity_test;
 
+#[cfg(target_os = "linux")]
 #[path = "../src/tests/git_action.rs"]
 mod git_action_test;
 
+#[cfg(target_os = "linux")]
 #[path = "../src/tests/notification.rs"]
 mod notification_test;
 

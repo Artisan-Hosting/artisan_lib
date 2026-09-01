@@ -1,24 +1,29 @@
 use colored::Colorize;
 use dusa_collection_utils::{
     core::errors::{
-        ErrorArrayItem, Errors, OkWarning, UnifiedResult, WarningArray, WarningArrayItem, Warnings,
+        ErrorArrayItem, Errors,
     },
     core::logger::LogLevel,
     core::types::stringy::Stringy,
     log,
 };
+#[cfg(target_os = "linux")]
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "linux")]
 use simple_comms::{
-    network::send_receive::send_message,
-    protocol::{flags::Flags, proto::Proto, status::ProtocolStatus},
+    network::send_receive::{establish_connection_initiator, send_message}, protocol::{flags::ConnectionParams, message::ConnectionCtx, proto::Proto},
 };
 use std::fmt;
 use tokio::net::TcpStream;
 
 /// Default mail server address. Used if no custom address is provided in [`Email::send`].
-const MAIL_ADDRESS: &str = "185.187.235.4:1827";
+const MAIL_ADDRESS: [&str; 2] = ["172.237.134.238:1827", "172.234.222.191:1827"];
+
+// it can't get more pinned than this
+const MAIL_SERVER_PUB: [u8; 32] = 
+[4, 174, 4, 246, 179, 162, 129, 67, 40, 38, 19, 206, 110, 212, 181, 156, 135, 163, 139, 211, 132, 147, 103, 80, 141, 7, 41, 46, 32, 80, 190, 84];
+
 
 /// Represents an email message containing a subject and a body.
 ///
@@ -171,69 +176,37 @@ impl Email {
     /// # });
     /// ```
     #[rustfmt::skip]
-    pub async fn send(&self, addr: Option<&str>) -> UnifiedResult<OkWarning<()>> {
+    pub async fn send(&self, addr: Option<&str>) -> Result<(), ErrorArrayItem> {
         // Validate email fields
         if !self.is_valid() {
-            return UnifiedResult::new(Err(ErrorArrayItem::new(
+            return Err(ErrorArrayItem::new(
                 Errors::GeneralError,
                 "Invalid Email Data".to_owned(),
-            )));
+            ));
         }
 
-        // Attempt to connect to the specified address or default mail server
-        let stream_result: Result<TcpStream, UnifiedResult<OkWarning<()>>> = match addr {
-            Some(addr) => TcpStream::connect(addr).await,
-            None => TcpStream::connect(MAIL_ADDRESS).await,
-        }.map_err(|err| UnifiedResult::new(Err(ErrorArrayItem::from(err))));
-
-        let mut stream = match stream_result {
-            Ok(stream) => stream,
-            Err(err) => return err,
+        let mailserver_addr: &str = if let Some(addr) = addr {
+            addr
+        } else {
+            // TODO figure out how to randomise this
+            MAIL_ADDRESS[0]
         };
 
-        log!{LogLevel::Trace, "Connected to: {:#?}", stream.peer_addr().unwrap()};
-
-        // Serialize the email to JSON
-        let data_result: Result<String, UnifiedResult<OkWarning<()>>> = self.to_json()
-            .map_err(|err| UnifiedResult::new(Err(err)));
-
-        let data: String = match data_result {
-            Ok(data) => data,
-            Err(err) => return err,
-        };
-
-        // Send the message and handle response
-        match send_message::<TcpStream, String, ()>(
-            &mut stream,
-            Flags::OPTIMIZED,
-            data,
-            Proto::TCP,
-            false
-        ).await {
-            Ok(response) => {
-                match response {
-                    Ok(response) => {
-                        // We handle the server's status code as a potential "unexpected behavior" warning
-                        let warning: WarningArrayItem =
-                            WarningArrayItem::new_details(
-                                Warnings::UnexpectedBehavior,
-                                format!("{}", ProtocolStatus::from_bits_truncate(response.header.status))
-                            );
-
-                        UnifiedResult::new(Ok(OkWarning{
-                            data: response.payload,
-                            warning: WarningArray::new(vec![warning]),
-                        }))
-                    },
-                    Err(error_code) => {
-                        let error = ErrorArrayItem::new(Errors::Network, format!("{}", error_code));
-                        UnifiedResult::new(Err(error))
-                    },
-                }
+        let mut stream: TcpStream = match TcpStream::connect(mailserver_addr).await {
+            Ok(res) => {
+                log!{LogLevel::Trace, "Connected to: {:#?}", res.peer_addr()?};
+                Ok(res)
             },
-            Err(err) => {
-                UnifiedResult::new(Err(ErrorArrayItem::from(err)))
-            },
-        }
+            Err(e) => Err(ErrorArrayItem::new(Errors::ConnectionError, 
+                format!("Failed to connect to mailserver: {}. {}", mailserver_addr, e))),
+        }?;
+
+        let mut conn: ConnectionCtx = establish_connection_initiator(&mut stream, &MAIL_SERVER_PUB, ConnectionParams::OPTIMIZED).await?;
+
+        let email_data: String = self.to_json()?;
+
+        let _: () = send_message(&mut stream, email_data, Proto::TCP, &mut conn).await?;
+
+        Ok(())
     }
 }

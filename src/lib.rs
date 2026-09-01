@@ -1,5 +1,8 @@
-// re-exporting dusa-utils
+// re-exporting libs
 pub use dusa_collection_utils;
+#[cfg(target_os = "linux")]
+pub use simple_comms;
+
 use dusa_collection_utils::core::version::VersionCode;
 
 // This is a successor of the artisan_platform

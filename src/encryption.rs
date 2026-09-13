@@ -1,6 +1,6 @@
-use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
+use aes_gcm::{aead::consts::U12, aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
 use dusa_collection_utils::{core::logger::LogLevel, core::types::stringy::Stringy, log};
-use rand::Rng;
+use rand::RngExt;
 use tokio::sync::Notify;
 
 use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors, UnifiedResult};
@@ -393,9 +393,9 @@ const NONCE_SIZE: usize = 12;
 const KEY_SIZE: usize = 32;
 
 pub fn generate_key(buffer: &mut [u8]) {
-    let mut rng = rand::thread_rng(); // Create a random number generator
+    let mut rng = rand::rng(); // Create a random number generator
     for byte in buffer.iter_mut() {
-        *byte = rng.gen(); // Fill each byte with random data
+        *byte = rng.random(); // Fill each byte with random data
     }
 }
 
@@ -414,18 +414,18 @@ pub fn simple_encrypt(data: &[u8]) -> Result<Stringy, ErrorArrayItem> {
     let mut key: [u8; 32] = [0u8; 32];
     generate_key(&mut key);
     let cipher = Aes256Gcm::new(&key.into());
-    let nonce_bytes = rand::thread_rng().gen::<[u8; NONCE_SIZE]>();
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce_bytes = rand::rng().random::<[u8; NONCE_SIZE]>();
+    let nonce = Nonce::<U12>::try_from(nonce_bytes.as_slice()).expect("nonce size mismatch");
 
     // Encrypt the data
     let ciphertext = cipher
-        .encrypt(nonce, data)
+        .encrypt(&nonce, data)
         .map_err(|e| ErrorArrayItem::new(Errors::InvalidBlockData, e.to_string()))?;
 
     // Combine the key, nonce, and ciphertext into a single byte stream
     let mut result = Vec::with_capacity(KEY_SIZE + NONCE_SIZE + ciphertext.len());
     result.extend_from_slice(&key);
-    result.extend_from_slice(nonce);
+    result.extend_from_slice(&nonce);
     result.extend_from_slice(&ciphertext);
 
     let cipher_text = Stringy::from(hex::encode(result));
@@ -453,9 +453,11 @@ pub fn simple_decrypt(encrypted_cipher_data: &[u8]) -> Result<Vec<u8>, ErrorArra
         ));
     }
 
-    let key = Key::<Aes256Gcm>::from_slice(&encrypted_data[..KEY_SIZE]);
+    let key = <&Key<Aes256Gcm>>::try_from(&encrypted_data[..KEY_SIZE])
+        .map_err(|_| ErrorArrayItem::new(Errors::InvalidBlockData, "Invalid key length"))?;
     let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&encrypted_data[KEY_SIZE..KEY_SIZE + NONCE_SIZE]);
+    let nonce = <&Nonce<U12>>::try_from(&encrypted_data[KEY_SIZE..KEY_SIZE + NONCE_SIZE])
+        .map_err(|_| ErrorArrayItem::new(Errors::InvalidBlockData, "Invalid nonce length"))?;
     let ciphertext = &encrypted_data[KEY_SIZE + NONCE_SIZE..];
 
     // Decrypt the data

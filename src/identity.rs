@@ -4,7 +4,7 @@ use dusa_collection_utils::{
     core::types::{pathtype::PathType, stringy::Stringy},
     log,
 };
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -212,8 +212,8 @@ impl Identifier {
     /// ```
     pub async fn new() -> Result<Self, ErrorArrayItem> {
         // ! Using the first 5 out of 31 bits (1..=5) for random datacenter/machine ID
-        let datacenter_id = rand::thread_rng().gen_range(1..=5);
-        let machine_id = rand::thread_rng().gen_range(1..=5);
+        let datacenter_id = rand::rng().random_range(1..=5);
+        let machine_id = rand::rng().random_range(1..=5);
 
         let mut big_id: SnowflakeIDGenerator = SnowflakeIDGenerator::new(datacenter_id, machine_id)
             .map_err(|_| {

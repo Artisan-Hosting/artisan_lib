@@ -60,14 +60,14 @@ pub async fn resolve_url(
             socket_addr: resolver.parse()?,
             protocol: Protocol::Udp,
             tls_dns_name: None,
-            trust_nx_responses: true,
+            trust_negative_responses: true,
             bind_addr: None,
         }],
     );
     let resolver_opts = ResolverOpts::default();
 
     // Create the async DNS resolver
-    let resolver = AsyncResolver::tokio(resolver_config, resolver_opts)?;
+    let resolver = AsyncResolver::tokio(resolver_config, resolver_opts);
 
     // Perform the lookup
     match resolver.lookup_ip(url).await {

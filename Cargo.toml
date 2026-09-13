@@ -1,6 +1,10 @@
 [package]
 name = "artisan_middleware"
+<<<<<<< HEAD
 version = "5.7.1"
+=======
+version = "5.7.0"
+>>>>>>> b8425b3 (Add unified runtime bundle: finished Enviornment_V2, custom_config, acai_core (#13))
 edition = "2021"
 authors = [
     "Artisan Hosting",

@@ -9,6 +9,7 @@ pub mod cli;
 pub mod config;
 pub mod config_bundle;
 pub mod control;
+pub mod custom_config;
 pub mod encryption;
 pub mod enviornment;
 pub mod git_actions;
@@ -22,6 +23,7 @@ pub mod portal;
 pub mod process_manager;
 #[cfg(target_os = "linux")]
 pub mod resource_monitor;
+pub mod runtime_bundle;
 pub mod state_persistence;
 #[cfg(target_os = "linux")]
 pub mod systemd;
@@ -60,3 +62,6 @@ mod resource_monitor_test;
 #[cfg(target_os = "linux")]
 #[path = "../src/tests/network.rs"]
 mod network_test;
+
+#[path = "../src/tests/enviornment.rs"]
+mod enviornment_test;

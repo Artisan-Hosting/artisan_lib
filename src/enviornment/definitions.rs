@@ -1,15 +1,13 @@
 use colored::Colorize;
 use core::fmt;
-use dusa_collection_utils::{
-    core::{
-        errors::{ErrorArrayItem, Errors},
-        logger::LogLevel,
-        types::stringy::Stringy,
-    },
-    log,
+use dusa_collection_utils::core::{
+    errors::{ErrorArrayItem, Errors},
+    logger::LogLevel,
+    types::stringy::Stringy,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::config::{Aggregator, DatabaseConfig, GitConfig};
 use crate::encryption::{simple_decrypt, simple_encrypt};
 
 /// A string marker identifying version 1 of the `Enviornment` configuration format.
@@ -98,8 +96,10 @@ impl Enviornment {
                     return Ok(Self::V1(env));
                 }
                 if line.contains("2") {
-                    log!(LogLevel::Error, "Version 2 not implemented");
-                    unimplemented!();
+                    let headerless_data = data_lines[1..].concat();
+                    let env: Enviornment_V2 =
+                        serde_json::from_str(&headerless_data).map_err(ErrorArrayItem::from)?;
+                    return Ok(Self::V2(env));
                 }
                 Err(ErrorArrayItem::new(
                     Errors::ConfigParsing,
@@ -190,8 +190,11 @@ impl Enviornment_V1 {
     /// - Returns [`ErrorArrayItem`] if JSON serialization or encryption fails.
     pub async fn parse_to(&self) -> Result<Vec<u8>, ErrorArrayItem> {
         let mut json_data: String = self.to_json()?;
-        // Insert the version header on its own line
-        json_data.insert_str(0, VERSION_TAG_V1);
+        // Insert the version header on its own line. `parse_from` requires the
+        // header to be an exact-match first line, so without the newline here
+        // the two never actually round-trip -- confirmed by the round-trip
+        // test added alongside `Enviornment_V2`.
+        json_data.insert_str(0, &format!("{}\n", VERSION_TAG_V1));
         let bytes: Vec<u8> = simple_encrypt(json_data.as_bytes())?.as_bytes().to_vec();
         Ok(bytes)
     }
@@ -319,67 +322,115 @@ impl fmt::Display for Enviornment_V1 {
     }
 }
 
-//================================================
-// (Below code is intentionally left undocumented.
-//  Enviornment_V2 is still under development.)
-//================================================
-
+/// **Environment V2**: the unified runtime config shape, replacing `Config.toml`
+/// (`[app_specific]`, formerly a runner-local `AppSpecificConfig`) and
+/// `Overrides.toml` (formerly the shared `AppConfig`) as two independently-loaded
+/// files with no relationship in code. Also folds in `Enviornment_V1`'s
+/// structural (non-secret) fields. Deliberately carries no secret-shaped
+/// fields (no `secret_id`/`secret_passwd`/`env_key_0` equivalents) -- arbitrary
+/// per-app secrets live in the runtime bundle's separate `.env` content, kept
+/// on the `ais_secretserver` read/write path, never in this struct.
+///
+/// Per-app custom fields that don't fit this fixed shape belong in
+/// [`crate::custom_config::CustomConfig`] instead, stored as a separate JSON
+/// file alongside this one inside the runtime bundle -- TOML's rigidity here is
+/// exactly what caused parsing bugs (e.g. in gitmon) when custom fields were
+/// forced into it.
 #[allow(non_camel_case_types)]
-#[rustfmt::skip]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Enviornment_V2 {
-    //pub application_type:       Option<ApplicationType>, // Application for building
-    pub execution_uid:              Option<u16>, // user id to spawn the runner as
-    pub execution_gid:              Option<u16>, // group id to spawn the runner as
-    pub primary_listening_port:     Option<u16>, // ie: web server listener, api port
-    pub secondary_listening_port:   Option<u16>, // ie: web server listener, api port
-    pub secret_id:                  Option<Stringy>, // Secret data to pass
-    pub secret_passwd:              Option<Stringy>, // Secret data to pass
-    pub secret_extra:               Option<Stringy>, // Secret data to pass
-    pub path_modifier:              Option<Stringy>, // Data to append the the string path 
-    // pub pre_build_command:          Option<Stringy>, // i:e npm install, command to handle depends
-    // pub build_command:              Option<Stringy>, // Command to build the project
-    // pub env_key_0:                  Option<(Stringy, Stringy)>, // Setting custom env value
-    // pub env_key_1:                  Option<(Stringy, Stringy)>, // Setting custom env value
-    // pub env_key_2:                  Option<(Stringy, Stringy)>, // Setting custom env value
-    // pub env_key_3:                  Option<(Stringy, Stringy)>, // Setting custom env value
-    // pub env_key_4:                  Option<(Stringy, Stringy)>, // Setting custom env value
+    // -- from the former `AppConfig` / `Overrides.toml` --
+    pub app_name: Stringy,
+    pub max_ram_usage: usize,
+    pub max_cpu_usage: usize,
+    pub environment: Stringy,
+    pub debug_mode: bool,
+    pub log_level: LogLevel,
+    pub git: Option<GitConfig>,
+    pub database: Option<DatabaseConfig>,
+    pub aggregator: Option<Aggregator>,
+
+    // -- from the former `AppSpecificConfig` / `Config.toml`'s `[app_specific]` --
+    pub interval_seconds: u32,
+    pub monitor_path: Stringy,
+    pub project_path: Stringy,
+    pub changes_needed: i32,
+    pub ignored_subdirs: Vec<Stringy>,
+    pub install_command: Option<Stringy>,
+    pub build_command: Option<Stringy>,
+    pub run_command: Stringy,
+
+    // -- from `Enviornment_V1`'s structural (non-secret) fields --
+    pub application_type: Option<ApplicationType>,
+    pub execution_uid: Option<u16>,
+    pub execution_gid: Option<u16>,
+    pub primary_listening_port: Option<u16>,
+    pub path_modifier: Option<Stringy>,
+    pub pre_build_command: Option<Stringy>,
 }
 
 impl Enviornment_V2 {
-    // Returns cipher text of the data
+    /// Encrypts this V2 configuration. Returns a vector of bytes containing
+    /// the encrypted JSON data.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if JSON serialization or encryption fails.
     pub async fn encrypt(&self) -> Result<Vec<u8>, ErrorArrayItem> {
         let data_json: String = self.to_json()?;
         let data_vec = data_json.as_bytes();
-        // unsafe { clean_override_op(encrypt_data, data_vec).await }
-        Ok(simple_encrypt(data_vec)?.as_bytes().to_vec())
+        match simple_encrypt(data_vec) {
+            Ok(data) => Ok(data.as_bytes().to_vec()),
+            Err(err) => Err(err),
+        }
     }
 
-    // return the json encoded data
+    /// Converts this V2 configuration to a pretty-printed JSON string.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if serialization fails.
     pub fn to_json(&self) -> Result<String, ErrorArrayItem> {
         serde_json::to_string_pretty(&self).map_err(ErrorArrayItem::from)
     }
 
-    // Returns cipher text of the data
-    #[allow(unreachable_code)]
-    pub async fn parse(_data: &[u8]) -> Result<Self, ErrorArrayItem> {
-        log!(LogLevel::Error, "Version 2 not implemented");
-        unimplemented!();
-        // let data_bytes = unsafe { clean_override_op(decrypt_data, _data).await? };
-        let data_bytes = simple_decrypt(_data)?;
+    /// Creates a version-tagged byte vector of this V2 configuration
+    /// (including the `VERSION_TAG_V2` line), then encrypts it via
+    /// [`simple_encrypt`]. Mirrors [`Enviornment_V1::parse_to`] exactly.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if JSON serialization or encryption fails.
+    pub async fn parse_to(&self) -> Result<Vec<u8>, ErrorArrayItem> {
+        let mut json_data: String = self.to_json()?;
+        json_data.insert_str(0, &format!("{}\n", VERSION_TAG_V2));
+        let bytes: Vec<u8> = simple_encrypt(json_data.as_bytes())?.as_bytes().to_vec();
+        Ok(bytes)
+    }
+
+    /// Decrypts and deserializes the provided bytes to produce an
+    /// `Enviornment_V2`. The first line in the decrypted text is expected to
+    /// be `VERSION_TAG_V2`. Mirrors [`Enviornment_V1::parse_from`] exactly.
+    ///
+    /// # Errors
+    /// - Returns [`ErrorArrayItem`] if decryption fails or if the version
+    ///   header is missing/invalid.
+    pub async fn parse_from(data: &[u8]) -> Result<Self, ErrorArrayItem> {
+        let data_bytes = simple_decrypt(data)?;
         let data_string = String::from_utf8(data_bytes).map_err(ErrorArrayItem::from)?;
         let data_lines: Vec<&str> = data_string.lines().map(|line| line).collect();
-        match data_lines[0] == VERSION_TAG_V2 {
-            true => {
-                // parse the correct version
+
+        match data_lines.first() {
+            Some(line) if *line == VERSION_TAG_V2 => {
                 let headerless_data = data_lines[1..].concat();
                 let env: Enviornment_V2 =
                     serde_json::from_str(&headerless_data).map_err(ErrorArrayItem::from)?;
                 Ok(env)
             }
-            false => Err(ErrorArrayItem::new(
+            Some(line) => Err(ErrorArrayItem::new(
                 Errors::ConfigParsing,
-                format!("Invalid version header: {}", data_lines[0]),
+                format!("Invalid version header: {}", line),
+            )),
+            None => Err(ErrorArrayItem::new(
+                Errors::ConfigParsing,
+                "No data found to parse".to_string(),
             )),
         }
     }
@@ -405,47 +456,23 @@ impl fmt::Display for Enviornment_V2 {
             format!("LISTENING PORT: {}", "None".bright_cyan())
         };
 
-        let second_port_string = if let Some(port) = self.secondary_listening_port {
-            format!("SECOND PORT: {}", port.to_string().bright_cyan())
+        let app_type = if let Some(app_type) = &self.application_type {
+            format!("APPLICATION: {}", app_type)
         } else {
-            format!("SECOND PORT: {}", "None".bright_cyan())
+            format!("APPLICATION: {}", "None".bold().blue())
         };
 
-        let secret_id_string = if let Some(id) = &self.secret_id {
-            format!("SECRET_ID: {}", id.to_string().yellow())
-        } else {
-            format!("SECRET_ID: {}", "None".yellow())
-        };
+        let run_command = format!("RUN: {}", self.run_command.bold().purple());
 
-        let secret_passwd_string = if let Some(_) = self.secret_passwd {
-            format!("SECRET_PASSWD: {}", "Populated".bold().green())
-        } else {
-            format!("SECRET_PASSWD: {}", "None".bold().green())
-        };
-
-        let secret_extra_string = if let Some(_) = self.secret_extra {
-            format!("SECRET_EXTRA: {}", "Populated".bold().green())
-        } else {
-            format!("SECRET_EXTRA: {}", "None".bold().green())
-        };
-
-        let modifier_string = if let Some(string) = &self.path_modifier {
-            format!("PATH: {}", string.bold().purple())
-        } else {
-            format!("PATH: {}", "None".bold().purple())
-        };
+        let max_ram = format!("MAX RAM (MB): {}", self.max_ram_usage.to_string().cyan());
+        let max_cpu = format!("MAX CPU: {}", self.max_cpu_usage.to_string().cyan());
+        let environment = format!("ENVIRONMENT: {}", self.environment.bold().yellow());
 
         write!(
             f,
             "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-            uid_string,
-            gid_string,
-            port_string,
-            second_port_string,
-            secret_id_string,
-            secret_passwd_string,
-            secret_extra_string,
-            modifier_string
+            app_type, uid_string, gid_string, port_string, run_command, max_ram, max_cpu,
+            environment,
         )
     }
 }

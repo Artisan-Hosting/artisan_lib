@@ -8,6 +8,13 @@ pub enum TokenType {
     Admin, // Not implemented
     Refresh,
     Password,
+    /// Short-TTL step-up token minted only after a fresh password re-check
+    /// (see `ais_auth`'s `ElevateSession` RPC), required by admin routes that
+    /// mutate sensitive state (org creation, user org/role reassignment) in
+    /// addition to the caller's normal role check -- a valid `Auth` token
+    /// alone is not enough for those. Not meant to replace a normal `Auth`
+    /// token for anything else; a caller still needs both.
+    Elevated,
     None,
 }
 
@@ -18,6 +25,7 @@ impl TokenType {
             TokenType::Admin => "admin",
             TokenType::Refresh => "refresh",
             TokenType::Password => "password",
+            TokenType::Elevated => "elevated",
             TokenType::None => "",
         }
     }
@@ -32,6 +40,7 @@ impl TokenType {
             "admin" => Self::Admin,
             "refresh" => Self::Refresh,
             "password" => Self::Password,
+            "elevated" => Self::Elevated,
             _ => Self::None,
         }
     }

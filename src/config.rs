@@ -1,3 +1,5 @@
+// TODO review if this can just be rolled into the V2, since we finnaly started re-unifiying that, this doesn't really need to exist, and v6.x 
+// TODO of this lib would be a great place to finnaly clean this up
 use colored::Colorize;
 // src/config.rs
 use config::{Config, ConfigError, Environment, File};
@@ -40,9 +42,11 @@ pub struct AppConfig {
     pub git: Option<GitConfig>,
 
     /// Configuration related to the database (optional example).
+    /// FIXME: (depricate), drop or version this as it's not the right place to define db work now with the env files working in V2
     pub database: Option<DatabaseConfig>,
 
     /// Configuration for Aggregator communication
+    /// FIXME: (depricate), This is ancient, the aggregator turned into the manager, we don't even use sockets for that anymore
     pub aggregator: Option<Aggregator>, // Add other configuration sections as needed.
 }
 

@@ -392,6 +392,7 @@ const NONCE_SIZE: usize = 12;
 /// The size (in bytes) of the AES-256 key (256 bits → 32 bytes).
 const KEY_SIZE: usize = 32;
 
+// FIXME: (rename) This is comically critical to be in the middle of deped code, move this or rename it
 pub fn generate_key(buffer: &mut [u8]) {
     let mut rng = rand::rng(); // Create a random number generator
     for byte in buffer.iter_mut() {

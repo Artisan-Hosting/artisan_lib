@@ -1,6 +1,8 @@
-// re-exporting dusa-utils
+// re-exporting libs
 pub use dusa_collection_utils;
 use dusa_collection_utils::core::version::VersionCode;
+#[cfg(target_os = "linux")]
+pub use simple_comms;
 
 // This is a successor of the artisan_platform
 pub mod aggregator;

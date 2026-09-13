@@ -3,7 +3,8 @@ mod tests {
     use crate::aggregator::Status;
     use crate::config::AppConfig;
     use crate::process_manager::{
-        spawn_complex_process, spawn_simple_process, ChildLock, SupervisedChild, SupervisedProcess,
+        is_pid_active, spawn_complex_process, spawn_simple_process, ChildLock, SupervisedChild,
+        SupervisedProcess,
     };
     use crate::state_persistence::AppState;
     use crate::timestamp::current_timestamp;
@@ -246,7 +247,7 @@ mod tests {
         kill_res.unwrap();
 
         // Check that the process was definitely killed
-        assert!(!ChildLock::running(pid as i32));
+        assert!(!is_pid_active(pid as i32).unwrap_or(false));
     }
 
     #[tokio::test]
@@ -368,18 +369,10 @@ mod tests {
         .expect("Failed to spawn complex process");
 
         // We can check that the child is actually valid
-        let pid = child
-            .child
-            .0
-            .try_read()
-            .await
-            .expect("Failed to lock child")
-            .id()
-            .expect("No PID from child");
-        assert!(ChildLock::running(pid as i32), "Child should be running");
+        assert!(child.running().await, "Child should be running");
 
         // Kill it
         child.child.kill().await.expect("Failed to kill child");
-        assert!(!ChildLock::running(pid as i32), "Child should be dead");
+        assert!(!child.running().await, "Child should be dead");
     }
 }

@@ -41,18 +41,15 @@ pub struct ChildLock(pub LockWithTimeout<Child>);
 pub struct SupervisedChild {
     /// The locked child process.
     pub child: ChildLock,
-    /// A lock-based resource monitor for CPU/memory usage, etc.
-    pub monitor: ResourceMonitorLock,
-    /// An optional background task handle for continuous resource monitoring.
-    monitor_handle: Option<JoinHandle<()>>,
+    /// Resource-monitor lifecycle (sampling task + watchdog), shared with
+    /// [`SupervisedProcess`] via [`ResourceSupervisor`].
+    resources: ResourceSupervisor,
     /// An optional background task handle for monitoring std_out/err
     monitor_std: Option<JoinHandle<()>>,
     /// Internal tracker for standard out
     stdout_buffer: LockWithTimeout<RollingBuffer>,
     /// Internal tracker for standard err
     stderr_buffer: LockWithTimeout<RollingBuffer>,
-    /// Health/heartbeat state for the resource monitor loop.
-    resource_watchdog: MonitorWatchdog,
     /// Health/heartbeat state for the stdout/stderr monitor loop.
     stdx_watchdog: MonitorWatchdog,
 }
@@ -63,12 +60,109 @@ pub struct SupervisedChild {
 pub struct SupervisedProcess {
     /// The process ID (PID) of the target process.
     pid: Pid,
-    /// A resource monitor tracking CPU/memory usage.
-    pub monitor: ResourceMonitorLock,
-    /// An optional background task handle for continuous resource monitoring.
-    monitor_handle: Option<JoinHandle<()>>,
-    /// Health/heartbeat state for the resource monitor loop.
-    resource_watchdog: MonitorWatchdog,
+    /// Resource-monitor lifecycle (sampling task + watchdog), shared with
+    /// [`SupervisedChild`] via [`ResourceSupervisor`].
+    resources: ResourceSupervisor,
+}
+
+/// The resource-monitor lifecycle -- the `/proc` sampling task plus its health
+/// watchdog -- shared by [`SupervisedChild`] and [`SupervisedProcess`].
+///
+/// Both types used to carry this as three separate fields plus five near-identical
+/// methods; the only difference between the two copies was a word in a log message.
+/// Pulling it out here means there's exactly one place left that starts, stops, and
+/// health-checks a resource-monitor task.
+struct ResourceSupervisor {
+    monitor: ResourceMonitorLock,
+    handle: Option<JoinHandle<()>>,
+    watchdog: MonitorWatchdog,
+}
+
+impl ResourceSupervisor {
+    fn new(pid: i32) -> Result<Self, ErrorArrayItem> {
+        Ok(Self {
+            monitor: ResourceMonitorLock::new(pid)?,
+            handle: None,
+            watchdog: MonitorWatchdog::new(),
+        })
+    }
+
+    /// Starts the sampling loop if it isn't already running, restarting it if the
+    /// previous task died unexpectedly. `pid_hint` is only used for the log message.
+    async fn ensure_running(&mut self, pid_hint: Option<u32>) {
+        if let Some(handle) = &self.handle {
+            if handle.is_finished() {
+                log!(
+                    LogLevel::Warn,
+                    "Resource monitor task finished unexpectedly for pid {:?}, restarting",
+                    pid_hint
+                );
+                self.handle = None;
+            } else {
+                return;
+            }
+        }
+
+        let monitor = self.monitor.clone();
+        let handle: JoinHandle<()> = monitor
+            .monitor_with_watchdog_interval(
+                RESOURCE_MONITOR_SAMPLE_INTERVAL,
+                Some(self.watchdog.clone()),
+            )
+            .await;
+        self.handle = Some(handle);
+    }
+
+    /// Stops the sampling task, if any, via [`JoinHandle::abort()`].
+    fn terminate(&mut self) {
+        if let Some(handle) = &self.handle {
+            log!(LogLevel::Trace, "Terminating monitor");
+            handle.abort();
+            self.handle = None;
+            self.watchdog.mark_stopped();
+        }
+    }
+
+    /// Returns whether the sampling task is currently running, clearing a
+    /// finished-but-not-yet-noticed handle as a side effect.
+    fn is_running(&mut self) -> bool {
+        if let Some(handle) = &self.handle {
+            if handle.is_finished() {
+                self.handle = None;
+                self.watchdog.mark_stopped();
+                false
+            } else {
+                true
+            }
+        } else {
+            false
+        }
+    }
+
+    async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
+        self.monitor.get_metrics().await
+    }
+
+    fn watchdog_snapshot(&self) -> MonitorWatchdogSnapshot {
+        self.watchdog.snapshot()
+    }
+
+    fn valid(&self, max_staleness: Duration, max_consecutive_failures: u64) -> bool {
+        self.watchdog
+            .snapshot()
+            .is_valid(max_staleness, max_consecutive_failures)
+    }
+
+    /// Stops any running task on `self`, then returns a fresh instance sharing the
+    /// same monitor and watchdog state but with no task of its own.
+    fn clone_idle(&mut self) -> Self {
+        self.terminate();
+        Self {
+            monitor: self.monitor.clone(),
+            handle: None,
+            watchdog: self.watchdog.clone(),
+        }
+    }
 }
 
 impl SupervisedProcess {
@@ -84,35 +178,30 @@ impl SupervisedProcess {
     /// - Using `kill(pid, 0)` is a non-destructive check that returns 0 if the process exists,
     ///   and `-1` if it doesn’t or if permissions are lacking.
     pub fn new(pid: Pid) -> Result<Self, ErrorArrayItem> {
-        // Ensure pid is active by sending signal 0
-        let active: bool = unsafe { kill(pid.as_raw(), 0) == 0 };
-
-        let supervised_process: Option<SupervisedProcess> = if active {
-            Some(SupervisedProcess {
-                pid,
-                monitor: ResourceMonitorLock::new(pid.as_raw())?,
-                monitor_handle: None,
-                resource_watchdog: MonitorWatchdog::new(),
-            })
-        } else {
-            None
-        };
-
-        match supervised_process {
-            Some(sup) => Ok(sup),
-            None => Err(ErrorArrayItem::new(
+        if !is_pid_active(pid.as_raw()).unwrap_or(false) {
+            return Err(ErrorArrayItem::new(
                 Errors::SupervisedChild,
                 format!(
                     "Failed to create SupervisedProcess; cannot determine status of PID: {}",
                     pid
                 ),
-            )),
+            ));
         }
+
+        Ok(SupervisedProcess {
+            pid,
+            resources: ResourceSupervisor::new(pid.as_raw())?,
+        })
     }
 
     /// Returns the raw PID of this process.
     pub fn get_pid(&self) -> i32 {
         self.pid.as_raw()
+    }
+
+    /// Returns the resource monitor backing this process.
+    pub fn monitor(&self) -> &ResourceMonitorLock {
+        &self.resources.monitor
     }
 
     /// Terminates the monitored process by:
@@ -130,7 +219,7 @@ impl SupervisedProcess {
     ///   marked as a "zombie." Reaping zombies avoids accumulation of defunct processes,
     ///   freeing kernel resources.
     pub fn kill(&mut self) -> Result<(), ErrorArrayItem> {
-        self.terminate_monitor();
+        self.resources.terminate();
         let xid = self.pid.as_raw();
         log!(LogLevel::Trace, "Killing supervised pid {}", xid);
 
@@ -139,26 +228,29 @@ impl SupervisedProcess {
     }
 
     /// Returns `true` if the process is still active (PID exists), or `false` otherwise.
-    pub fn active(&self) -> bool {
-        Self::running(self.pid.as_raw())
+    ///
+    /// # Zombie caveat
+    /// Unlike [`SupervisedChild::running`], this can't reap on your behalf: a
+    /// `SupervisedProcess` wraps a bare PID that this instance is frequently *not*
+    /// the real parent of (e.g. re-attached to a PID recorded before a watchdog
+    /// restart). Only the actual parent -- or `init`/a subreaper, once the process
+    /// is reparented -- can reap it. So a zombie still reports as "running" here;
+    /// this only tells you whether the PID still exists in the process table.
+    pub fn running(&self) -> bool {
+        is_pid_active(self.pid.as_raw()).unwrap_or(false)
     }
 
-    /// Checks if a PID is running by sending signal 0.
-    pub fn running(pid: c_int) -> bool {
-        unsafe { kill(pid, 0) == 0 }
+    /// Alias for [`SupervisedProcess::running`].
+    pub fn active(&self) -> bool {
+        self.running()
     }
 
     /// Clones this `SupervisedProcess`, returning a new instance without a running monitor.
     /// The existing monitor is terminated before cloning.
     pub async fn clone(&mut self) -> Self {
-        self.terminate_monitor();
-        let monitor_lock: ResourceMonitorLock = self.monitor.clone();
-
         Self {
             pid: self.pid,
-            monitor: monitor_lock,
-            monitor_handle: None,
-            resource_watchdog: self.resource_watchdog.clone(),
+            resources: self.resources.clone_idle(),
         }
     }
 
@@ -166,31 +258,12 @@ impl SupervisedProcess {
     /// `/proc/<pid>` for CPU/memory usage.
     ///
     /// # Note
-    /// - This loop is attached to `monitor_handle`. Re-run this method only if `monitor_handle`
-    ///   is `None` or the previous monitor task has already finished.
+    /// - Calling this again is a no-op unless the previous monitor task has died.
     /// - A watchdog is updated on each loop iteration for out-of-band health checks.
     pub async fn monitor_usage(&mut self) {
-        if let Some(handle) = &self.monitor_handle {
-            if handle.is_finished() {
-                log!(
-                    LogLevel::Warn,
-                    "Resource monitor task finished unexpectedly for pid {}, restarting",
-                    self.pid
-                );
-                self.monitor_handle = None;
-            } else {
-                return;
-            }
-        }
-
-        let d0: &ResourceMonitorLock = &self.monitor.clone();
-        let handle: JoinHandle<()> = d0
-            .monitor_with_watchdog_interval(
-                RESOURCE_MONITOR_SAMPLE_INTERVAL,
-                Some(self.resource_watchdog.clone()),
-            )
+        self.resources
+            .ensure_running(Some(self.pid.as_raw() as u32))
             .await;
-        self.monitor_handle = Some(handle)
     }
 
     /// Terminates the resource monitor task, if any.
@@ -198,28 +271,13 @@ impl SupervisedProcess {
     /// # Note
     /// - Uses [`JoinHandle::abort()`] to stop the task immediately.
     pub fn terminate_monitor(&mut self) {
-        if let Some(handle) = &self.monitor_handle {
-            log!(LogLevel::Trace, "Terminating monitor");
-            handle.abort();
-            self.monitor_handle = None;
-            self.resource_watchdog.mark_stopped();
-        }
+        self.resources.terminate();
     }
 
     /// Checks if there is currently a resource monitor running
     /// for a given [`SupervisedProcess`]
     pub fn monitoring(&mut self) -> bool {
-        if let Some(handle) = &self.monitor_handle {
-            if handle.is_finished() {
-                self.monitor_handle = None;
-                self.resource_watchdog.mark_stopped();
-                false
-            } else {
-                true
-            }
-        } else {
-            false
-        }
+        self.resources.is_running()
     }
 
     /// Fetches resource usage metrics (CPU, memory, etc.) from the process-specific resource monitor.
@@ -228,12 +286,12 @@ impl SupervisedProcess {
     /// - Returns an [`ErrorArrayItem`] if the resource monitor fails to read from `/proc` or
     ///   if the process does not exist anymore.
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
-        self.monitor.get_metrics().await
+        self.resources.get_metrics().await
     }
 
     /// Returns a lock-free watchdog snapshot for the resource monitor.
     pub fn resource_watchdog_snapshot(&self) -> MonitorWatchdogSnapshot {
-        self.resource_watchdog.snapshot()
+        self.resources.watchdog_snapshot()
     }
 
     /// Returns whether the resource monitor appears healthy.
@@ -242,9 +300,7 @@ impl SupervisedProcess {
         max_staleness: Duration,
         max_consecutive_failures: u64,
     ) -> bool {
-        self.resource_watchdog
-            .snapshot()
-            .is_valid(max_staleness, max_consecutive_failures)
+        self.resources.valid(max_staleness, max_consecutive_failures)
     }
 }
 
@@ -290,19 +346,16 @@ impl SupervisedChild {
     /// This aborts current monitor tasks, then clones the child lock, resource monitor lock,
     /// buffers, and watchdog state.
     pub async fn clone(&mut self) -> Self {
-        self.terminate_monitor();
         self.terminate_stdx();
-        let monitor_lock: ResourceMonitorLock = self.monitor.clone();
+        let resources = self.resources.clone_idle();
         let child_lock: ChildLock = self.child.clone();
 
         Self {
             child: child_lock,
-            monitor: monitor_lock,
-            monitor_handle: None,
+            resources,
             monitor_std: None,
             stdout_buffer: self.stdout_buffer.clone(),
             stderr_buffer: self.stderr_buffer.clone(),
-            resource_watchdog: self.resource_watchdog.clone(),
             stdx_watchdog: self.stdx_watchdog.clone(),
         }
     }
@@ -313,19 +366,30 @@ impl SupervisedChild {
     /// # Errors
     /// - Returns an [`ErrorArrayItem`] on I/O issues or if reaping fails.
     pub async fn kill(&mut self) -> Result<(), ErrorArrayItem> {
-        self.terminate_monitor();
+        self.resources.terminate();
         self.terminate_stdx();
         self.child.kill().await
     }
 
-    /// Checks if the child process is still running by retrieving its PID and sending signal 0.
-    pub async fn running(&self) -> bool {
-        let xid = match self.get_pid().await {
-            Ok(xid) => xid,
-            Err(_) => return false,
-        };
+    /// Non-blocking check for whether this child has already exited, reaping it if so.
+    ///
+    /// See [`ChildLock::try_wait`] for details.
+    pub async fn try_wait(&self) -> Result<Option<std::process::ExitStatus>, ErrorArrayItem> {
+        self.child.try_wait().await
+    }
 
-        ChildLock::running(xid as c_int)
+    /// Checks if the child process is still running.
+    ///
+    /// See [`ChildLock::running`] -- this reaps the process via `try_wait` instead of
+    /// signaling the raw PID, so an exited-but-unreaped child (a zombie) is correctly
+    /// reported as not running instead of appearing alive.
+    pub async fn running(&self) -> bool {
+        self.child.running().await
+    }
+
+    /// Returns the resource monitor backing this child.
+    pub fn monitor(&self) -> &ResourceMonitorLock {
+        &self.resources.monitor
     }
 
     /// Spawns an asynchronous resource monitoring loop for this child. If a monitor is
@@ -336,44 +400,15 @@ impl SupervisedChild {
     /// - Use [`terminate_monitor`] to stop the task.
     /// - A watchdog is updated on each loop iteration for out-of-band health checks.
     pub async fn monitor_usage(&mut self) {
-        if let Some(handle) = &self.monitor_handle {
-            if handle.is_finished() {
-                log!(
-                    LogLevel::Warn,
-                    "Resource monitor task finished unexpectedly for child pid {:?}, restarting",
-                    self.get_pid().await.ok()
-                );
-                self.monitor_handle = None;
-            } else {
-                return;
-            }
-        }
-
-        let d0: &ResourceMonitorLock = &self.monitor.clone();
-        let handle: JoinHandle<()> = d0
-            .monitor_with_watchdog_interval(
-                RESOURCE_MONITOR_SAMPLE_INTERVAL,
-                Some(self.resource_watchdog.clone()),
-            )
-            .await;
-        self.monitor_handle = Some(handle)
+        let pid_hint = self.get_pid().await.ok();
+        self.resources.ensure_running(pid_hint).await;
     }
 
     /// Returns whether the child resource monitor task is currently running.
     ///
     /// If the handle exists but has finished, it is cleared and `false` is returned.
     pub fn monitoring(&mut self) -> bool {
-        if let Some(handle) = &self.monitor_handle {
-            if handle.is_finished() {
-                self.monitor_handle = None;
-                self.resource_watchdog.mark_stopped();
-                false
-            } else {
-                true
-            }
-        } else {
-            false
-        }
+        self.resources.is_running()
     }
 
     /// Spawns an asynchronous resource monitoring loop for the standard out and standard error. If a monitor is
@@ -488,12 +523,7 @@ impl SupervisedChild {
     /// Terminates the resource monitor task, if any is currently running. This calls
     /// [`JoinHandle::abort()`] on the stored handle.
     pub fn terminate_monitor(&mut self) {
-        if let Some(handle) = &self.monitor_handle {
-            log!(LogLevel::Trace, "Terminating monitor");
-            handle.abort();
-            self.monitor_handle = None;
-            self.resource_watchdog.mark_stopped();
-        }
+        self.resources.terminate();
     }
 
     /// Terminates the stdout/stderr monitor task, if currently running. This calls
@@ -507,15 +537,15 @@ impl SupervisedChild {
         }
     }
 
-    /// Retrieves the current resource usage metrics from `/proc`.  
+    /// Retrieves the current resource usage metrics from `/proc`.
     /// Returns an error if the process has exited or if `/proc` parsing fails.
     pub async fn get_metrics(&self) -> Result<Metrics, ErrorArrayItem> {
-        self.monitor.get_metrics().await
+        self.resources.get_metrics().await
     }
 
     /// Returns a lock-free watchdog snapshot for the child resource monitor.
     pub fn resource_watchdog_snapshot(&self) -> MonitorWatchdogSnapshot {
-        self.resource_watchdog.snapshot()
+        self.resources.watchdog_snapshot()
     }
 
     /// Returns a lock-free watchdog snapshot for the child stdout/stderr monitor.
@@ -529,9 +559,7 @@ impl SupervisedChild {
         max_staleness: Duration,
         max_consecutive_failures: u64,
     ) -> bool {
-        self.resource_watchdog
-            .snapshot()
-            .is_valid(max_staleness, max_consecutive_failures)
+        self.resources.valid(max_staleness, max_consecutive_failures)
     }
 
     /// Returns whether the child stdout/stderr monitor appears healthy.
@@ -602,44 +630,46 @@ impl ChildLock {
         }
     }
 
-    /// Checks if a process is running by sending signal 0 (non-destructive test).
-    pub fn running(pid: c_int) -> bool {
-        unsafe { kill(pid, 0) == 0 }
+    /// Non-blocking check for whether the child has already exited.
+    ///
+    /// This calls [`tokio::process::Child::try_wait`] under the hood, which performs
+    /// a `waitpid(..., WNOHANG)` on our behalf. Unlike a raw `kill(pid, 0)` signal
+    /// check, this correctly reports an exited process as no longer running (rather
+    /// than as a still-existing zombie), and it reaps the process in the same call
+    /// so it never lingers as a zombie.
+    ///
+    /// # Returns
+    /// - `Ok(Some(status))` if the process has already exited (now reaped).
+    /// - `Ok(None)` if the process is still running.
+    ///
+    /// # Errors
+    /// - Returns an [`ErrorArrayItem`] if the child lock can't be acquired in time.
+    pub async fn try_wait(&self) -> Result<Option<std::process::ExitStatus>, ErrorArrayItem> {
+        let mut child = self
+            .0
+            .try_write_with_timeout(Some(Duration::from_secs(1)))
+            .await?;
+        child.try_wait().map_err(ErrorArrayItem::from)
     }
 
-    /// Reaps the (potential) zombie process. If the process isn't a zombie,
-    /// `waitpid` returns immediately with an error which is logged at `Trace`.
-    fn reap_zombie_process(pid: c_int) {
-        match waitpid(Pid::from_raw(pid), Some(WaitPidFlag::WNOHANG)) {
-            Ok(WaitStatus::Exited(_, status)) => {
-                log!(
-                    LogLevel::Trace,
-                    "Reaped pid {} with exit status {}",
-                    pid,
-                    status
-                )
-            }
-            Ok(WaitStatus::Signaled(_, sig, _)) => {
-                log!(
-                    LogLevel::Trace,
-                    "Reaped pid {} terminated by signal {:?}",
-                    pid,
-                    sig
-                )
-            }
-            Ok(WaitStatus::StillAlive) => {
-                log!(
-                    LogLevel::Trace,
-                    "PID {} still alive when attempting reap",
-                    pid
-                )
-            }
-            Ok(status) => {
-                log!(LogLevel::Trace, "PID {} wait status: {:?}", pid, status)
-            }
-            Err(e) => {
-                log!(LogLevel::Trace, "Failed to reap pid {}: {}", pid, e)
-            }
+    /// Checks if the child is still running -- the one true liveness check for a
+    /// process we hold a real [`tokio::process::Child`] handle for.
+    ///
+    /// This reaps via `try_wait` rather than signaling the PID directly, so an
+    /// exited-but-unreaped child (a zombie) is correctly reported as not running
+    /// instead of appearing alive.
+    ///
+    /// A lock-acquisition timeout is treated as "unknown" and reported as still
+    /// running, so callers don't tear down a healthy child on transient contention.
+    /// Any other error (e.g. the OS reporting no such child, which happens if the
+    /// process was already reaped elsewhere, such as by a concurrent `kill()`) is
+    /// treated as "not running".
+    pub async fn running(&self) -> bool {
+        match self.try_wait().await {
+            Ok(None) => true,
+            Ok(Some(_)) => false,
+            Err(err) if err.err_type == Errors::GeneralError => true,
+            Err(_) => false,
         }
     }
 }
@@ -794,12 +824,14 @@ pub async fn spawn_complex_process(
 
             Ok(SupervisedChild {
                 child,
-                monitor,
-                monitor_handle: None,
+                resources: ResourceSupervisor {
+                    monitor,
+                    handle: None,
+                    watchdog: MonitorWatchdog::new(),
+                },
                 monitor_std: None,
                 stdout_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
                 stderr_buffer: LockWithTimeout::new(RollingBuffer::new(500)),
-                resource_watchdog: MonitorWatchdog::new(),
                 stdx_watchdog: MonitorWatchdog::new(),
             })
         }
@@ -847,6 +879,45 @@ fn collect_descendants(root_pid: i32) -> Result<HashSet<i32>, ErrorArrayItem> {
     Ok(result)
 }
 
+/// Makes one non-blocking reap attempt (`waitpid(pid, WNOHANG)`) on a bare PID.
+///
+/// This only actually reaps anything if we're the real parent of `pid`; otherwise
+/// `waitpid` fails (typically ECHILD) and that failure is logged at `Trace` and
+/// ignored, since there's nothing we can do about a process we don't own.
+fn reap_zombie_process(pid: c_int) {
+    match waitpid(Pid::from_raw(pid), Some(WaitPidFlag::WNOHANG)) {
+        Ok(WaitStatus::Exited(_, status)) => {
+            log!(
+                LogLevel::Trace,
+                "Reaped pid {} with exit status {}",
+                pid,
+                status
+            )
+        }
+        Ok(WaitStatus::Signaled(_, sig, _)) => {
+            log!(
+                LogLevel::Trace,
+                "Reaped pid {} terminated by signal {:?}",
+                pid,
+                sig
+            )
+        }
+        Ok(WaitStatus::StillAlive) => {
+            log!(
+                LogLevel::Trace,
+                "PID {} still alive when attempting reap",
+                pid
+            )
+        }
+        Ok(status) => {
+            log!(LogLevel::Trace, "PID {} wait status: {:?}", pid, status)
+        }
+        Err(e) => {
+            log!(LogLevel::Trace, "Failed to reap pid {}: {}", pid, e)
+        }
+    }
+}
+
 /// Kill all processes belonging to a PGID and all of their descendants.
 fn kill_pgid_recursive(pgid: i32) -> Result<(), ErrorArrayItem> {
     log!(LogLevel::Trace, "Recursively killing pgid: {}", pgid);
@@ -875,8 +946,8 @@ fn kill_pgid_recursive(pgid: i32) -> Result<(), ErrorArrayItem> {
     thread::sleep(Duration::from_millis(400));
 
     for pid in &pids {
-        ChildLock::reap_zombie_process(*pid);
-        if ChildLock::running(*pid) {
+        reap_zombie_process(*pid);
+        if is_pid_active(*pid).unwrap_or(false) {
             log!(LogLevel::Warn, "PID {} still running; sending SIGKILL", pid);
             let res = unsafe { kill(*pid, SIGKILL) };
             if res != 0 {
@@ -885,8 +956,8 @@ fn kill_pgid_recursive(pgid: i32) -> Result<(), ErrorArrayItem> {
                     return Err(ErrorArrayItem::from(err));
                 }
             }
-            ChildLock::reap_zombie_process(*pid);
-            if !ChildLock::running(*pid) {
+            reap_zombie_process(*pid);
+            if !is_pid_active(*pid).unwrap_or(false) {
                 log!(LogLevel::Trace, "PID {} terminated", pid);
             } else {
                 log!(LogLevel::Warn, "PID {} survived SIGKILL", pid);

@@ -88,25 +88,35 @@ impl fmt::Display for CommandType {
     }
 }
 
-/// Represents different lifecycle states an application can be in.
+/// Represents different lifecycle states a project instance can be in.
+///
+/// # Wire format
+///
+/// `Status` MUST cross a service boundary (gRPC, HTTP/JSON) via [`Status::as_str_name`] /
+/// [`Status::from_str_name`], never via [`fmt::Display`] (which is colorized for terminal
+/// output only) and never via an ad hoc lowercase/uppercase string match. See
+/// [`Status::from_str_name`] for the fail-loud parsing contract this replaces.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Status {
-    /// The application is in the process of starting.
+    /// The project is in the process of starting.
     Starting,
-    /// The application is currently running.
+    /// The project is currently running.
     Running,
-    /// The application is running but idle.
+    /// The project is running but idle.
     Idle,
-    /// The application is in the process of stopping.
+    /// The project is in the process of stopping.
     Stopping,
-    /// The application has stopped.
+    /// The project has stopped.
     Stopped,
-    /// The application’s status cannot be determined.
-    Unknown,
-    /// The application is running with warnings.
+    /// The project is running with warnings.
     Warning,
-    /// The application is in the process of building.
+    /// The project is in the process of building.
     Building,
+    /// The project has encountered an error.
+    Error,
+    /// The status could not be determined. A legitimate VALUE (e.g. "not yet reported"),
+    /// never a silent fallback for a parse failure — see [`Status::from_str_name`].
+    Unknown,
 }
 
 impl fmt::Display for Status {
@@ -117,11 +127,67 @@ impl fmt::Display for Status {
             Status::Idle => "Idle".yellow(),
             Status::Stopping => "Stopping".bright_red(),
             Status::Stopped => "Stopped".red().bold(),
-            Status::Unknown => "Unknown".bright_cyan().bold(),
             Status::Warning => "Warning".bright_yellow(),
             Status::Building => "Building".bright_blue(),
+            Status::Error => "Error".red().bold(),
+            Status::Unknown => "Unknown".bright_cyan().bold(),
         };
         write!(f, "{}", status_str)
+    }
+}
+
+/// Returned by [`Status::from_str_name`] when a wire value doesn't match any known variant.
+///
+/// Carries the raw, unrecognized value so the caller can log it and increment a metric
+/// before deciding on a *visible* fallback (e.g. [`Status::Warning`]) — never a silent
+/// downgrade to [`Status::Unknown`]/[`Status::Stopped`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusParseError(pub String);
+
+impl fmt::Display for StatusParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unrecognized Status wire value: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for StatusParseError {}
+
+impl Status {
+    /// The canonical, uncolored, wire-safe name for this variant (prost-enum convention).
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Status::Starting => "STARTING",
+            Status::Running => "RUNNING",
+            Status::Idle => "IDLE",
+            Status::Stopping => "STOPPING",
+            Status::Stopped => "STOPPED",
+            Status::Warning => "WARNING",
+            Status::Building => "BUILDING",
+            Status::Error => "ERROR",
+            Status::Unknown => "UNKNOWN",
+        }
+    }
+
+    /// Parses a wire value produced by [`Status::as_str_name`].
+    ///
+    /// Case-insensitive (accepts `"Running"`, `"running"`, or `"RUNNING"`) so that services
+    /// mid-migration from an ad hoc lowercase encoding don't all need to change in the same
+    /// commit, but an unrecognized value is always an `Err`, never silently mapped to any
+    /// variant. Callers MUST log the raw value and count it via a metric on the `Err` path,
+    /// per the wire-format contract documented on [`Status`] itself.
+    pub fn from_str_name(s: &str) -> Result<Status, StatusParseError> {
+        match s.to_ascii_uppercase().as_str() {
+            "STARTING" => Ok(Status::Starting),
+            "RUNNING" => Ok(Status::Running),
+            "IDLE" => Ok(Status::Idle),
+            "STOPPING" => Ok(Status::Stopping),
+            "STOPPED" => Ok(Status::Stopped),
+            "WARNING" => Ok(Status::Warning),
+            "BUILDING" => Ok(Status::Building),
+            "ERROR" => Ok(Status::Error),
+            "UNKNOWN" => Ok(Status::Unknown),
+            _ => Err(StatusParseError(s.to_owned())),
+        }
     }
 }
 
@@ -129,12 +195,12 @@ impl fmt::Display for Status {
 // Structs
 //
 
-/// Represents a command that can be issued to an application, including the
-/// application identifier, command type, and timestamp.
+/// Represents a command that can be issued to a project, including the
+/// project identifier, command type, and timestamp.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
-    /// The unique identifier of the target application.
-    pub app_id: ID,
+    /// The unique identifier of the target project.
+    pub project_id: ID,
     /// The type of command (start, stop, custom, etc.).
     pub command_type: CommandType,
     /// A Unix timestamp marking when the command was created.
@@ -146,8 +212,8 @@ impl fmt::Display for Command {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Project ID".bold().cyan(),
+            self.project_id,
             "Command Type".bold().cyan(),
             self.command_type,
             "Timestamp".bold().cyan(),
@@ -222,7 +288,7 @@ impl fmt::Display for Metrics {
 /// ```rust,no_run
 /// use artisan_middleware::aggregator::LiveMetrics;
 /// let _metrics = LiveMetrics {
-///     runner_id: "abc123".into(),
+///     project_id: "abc123".into(),
 ///     instance_id: "xyz456".into(),
 ///     cpu_usage: 12.5,
 ///     memory_mb: 256.0,
@@ -232,7 +298,7 @@ impl fmt::Display for Metrics {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveMetrics {
-    pub runner_id: Stringy,
+    pub project_id: Stringy,
     pub instance_id: Stringy,
     pub cpu_usage: f32,
     pub memory_mb: f64,
@@ -253,7 +319,7 @@ pub struct LiveMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageRecord {
     pub timestamp_epoch: i64,
-    pub runner_id: Stringy,
+    pub project_id: Stringy,
     pub instance_id: Stringy,
     pub total_cpu: f32,
     pub peak_cpu: f32,
@@ -314,7 +380,7 @@ pub struct UsageAccumulator {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BilledUsageSummary {
-    pub runner_id: Stringy,
+    pub project_id: Stringy,
     pub instance_id: Stringy,
     pub total_cpu: f32,
     pub peak_cpu: f32,
@@ -367,7 +433,7 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
     let mut min_tx: u64 = u64::MAX;
     let mut max_tx: u64 = 0;
 
-    let runner_id = records[0].runner_id.clone();
+    let project_id = records[0].project_id.clone();
     let instance_id = records[0].instance_id.clone();
     let mut instance_seen: HashSet<Stringy> = HashSet::new();
 
@@ -403,7 +469,7 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
     let total_core_hours = total_cpu_points;
 
     Some(BilledUsageSummary {
-        runner_id,
+        project_id,
         instance_id,
         total_cpu: total_core_hours, // << total_cpu is now "core-hours"
         peak_cpu,
@@ -417,7 +483,7 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
 }
 
 /// Key for mapping usage data per instance.
-/// Tuple of (runner_id, instance_id).
+/// Tuple of (project_id, instance_id).
 pub type InstanceKey = (Stringy, Stringy);
 
 /// Thread-safe map of usage accumulators.
@@ -443,7 +509,7 @@ pub struct AppContext {
 /// Returns an error if the lock on the usage map could not be acquired.
 pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(), ErrorArrayItem> {
     let mut map = usage_map.try_write().await?;
-    let key = (live.runner_id.clone(), live.instance_id.clone());
+    let key = (live.project_id.clone(), live.instance_id.clone());
     let entry = map.entry(key).or_default();
 
     // CPU & RAM
@@ -468,7 +534,7 @@ pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(
         log!(
             LogLevel::Warn,
             "RX counter moved backwards for {}:{} ({} -> {}), resetting baseline",
-            live.runner_id,
+            live.project_id,
             live.instance_id,
             entry.last_rx,
             live.rx_bytes
@@ -481,7 +547,7 @@ pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(
         log!(
             LogLevel::Warn,
             "TX counter moved backwards for {}:{} ({} -> {}), resetting baseline",
-            live.runner_id,
+            live.project_id,
             live.instance_id,
             entry.last_tx,
             live.tx_bytes
@@ -518,10 +584,10 @@ pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
 
             let now = Utc::now();
             let epoch = now.timestamp();
-            for ((runner_id, instance_id), acc) in map.drain() {
+            for ((project_id, instance_id), acc) in map.drain() {
                 let record = UsageRecord {
                     timestamp_epoch: epoch,
-                    runner_id,
+                    project_id,
                     instance_id,
                     total_cpu: acc.total_cpu,
                     peak_cpu: acc.peak_cpu,
@@ -569,10 +635,10 @@ pub async fn flush_metrics_to_disk(
     let now = Utc::now();
     let epoch = now.timestamp();
 
-    for ((runner_id, instance_id), acc) in map.drain() {
+    for ((project_id, instance_id), acc) in map.drain() {
         let record = UsageRecord {
             timestamp_epoch: epoch,
-            runner_id,
+            project_id,
             instance_id,
             total_cpu: acc.total_cpu,
             peak_cpu: acc.peak_cpu,
@@ -603,7 +669,7 @@ pub async fn flush_metrics_to_disk(
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppStatus {
     /// Unique identifier for the application.
-    pub app_id: ID,
+    pub project_id: ID,
     /// Additional identifier (often a Git commit SHA or branch).
     pub git_id: ID,
     /// The application state and all configuration data associated, refer to [`ApplicationConfig`]
@@ -642,9 +708,9 @@ impl AppStatus {
         serde_json::to_string(self).unwrap_unchecked()
     }
 
-    /// Returns the `app_id` (primary identifier).
+    /// Returns the `project_id` (primary identifier).
     pub fn get_id(&self) -> Stringy {
-        self.app_id.clone()
+        self.project_id.clone()
     }
 }
 
@@ -658,8 +724,8 @@ impl fmt::Display for AppStatus {
         write!(
             f,
             "{}: {}, {}: {} seconds, {}: {}, {}: {}, {}: {}, {} {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Project ID".bold().cyan(),
+            self.project_id,
             "Uptime".bold().cyan(),
             self.uptime.unwrap_or(0),
             "Metrics".bold().cyan(),
@@ -681,7 +747,7 @@ impl fmt::Display for AppStatus {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommandResponse {
     /// The unique identifier of the target application.
-    pub app_id: ID,
+    pub project_id: ID,
     /// The type of command that was processed.
     pub command_type: CommandType,
     /// Indicates whether the command was successful.
@@ -695,8 +761,8 @@ impl fmt::Display for CommandResponse {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Project ID".bold().cyan(),
+            self.project_id,
             "Command Type".bold().cyan(),
             self.command_type,
             "Success".bold().cyan(),
@@ -715,7 +781,7 @@ impl fmt::Display for CommandResponse {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegisterApp {
     /// A unique identifier for the application to be registered.
-    pub app_id: ID,
+    pub project_id: ID,
     /// Human-readable name of the application.
     pub app_name: String,
     /// The status that we expect the application to have once registered.
@@ -731,8 +797,8 @@ impl fmt::Display for RegisterApp {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Project ID".bold().cyan(),
+            self.project_id,
             "App Name".bold().cyan(),
             self.app_name,
             "Expected Status".bold().cyan(),
@@ -747,7 +813,7 @@ impl fmt::Display for RegisterApp {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeregisterApp {
     /// Unique identifier of the application being deregistered.
-    pub app_id: ID,
+    pub project_id: ID,
     /// Timestamp when deregistration was requested.
     pub deregistration_timestamp: u64,
 }
@@ -757,8 +823,8 @@ impl fmt::Display for DeregisterApp {
         write!(
             f,
             "{}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Project ID".bold().cyan(),
+            self.project_id,
             "Deregistration Timestamp".bold().cyan(),
             self.deregistration_timestamp
         )
@@ -769,7 +835,7 @@ impl fmt::Display for DeregisterApp {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UpdateApp {
     /// Identifier of the application to be updated.
-    pub app_id: ID,
+    pub project_id: ID,
     /// A list of errors encountered by the application, if any.
     pub error: Option<Vec<ErrorArrayItem>>,
     /// Updated metrics (CPU, memory, etc.).
@@ -785,8 +851,8 @@ impl fmt::Display for UpdateApp {
         write!(
             f,
             "{}: {}, {}: {}, {}: {}, {}: {}",
-            "App ID".bold().cyan(),
-            self.app_id,
+            "Project ID".bold().cyan(),
+            self.project_id,
             "Status".bold().cyan(),
             self.status,
             "Error".bold().cyan(),

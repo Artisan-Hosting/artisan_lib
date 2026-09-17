@@ -13,9 +13,6 @@ use tokio::process::Command;
 
 use dusa_collection_utils::core::errors::{ErrorArrayItem, Errors};
 
-#[cfg(target_os = "linux")]
-use dusa_collection_utils::platform::functions::{create_hash, truncate};
-
 use crate::encryption::{simple_decrypt, simple_encrypt};
 // use crate::encryption::{decrypt_text, encrypt_text};
 
@@ -331,12 +328,15 @@ impl GitAuth {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    /// The canonical project id for this git identity. Delegates to
+    /// [`crate::identity::generate_project_id`] -- the single implementation
+    /// that replaced this method's former standalone hash computation and the
+    /// duplicate free function `generate_git_project_id` that used to live in
+    /// this module.
     pub fn generate_id(&self) -> Stringy {
-        truncate(
-            &*create_hash(format!("{}-{}-{}", self.branch, self.repo, self.user)),
-            8,
-        )
+        crate::identity::generate_project_id(&self.user, &self.repo, &self.branch)
+            .as_str()
+            .into()
     }
 }
 
@@ -702,26 +702,15 @@ async fn execute_git_hash_command(args: &[&str]) -> Result<String, ErrorArrayIte
 /// # Returns
 ///
 /// Returns a `PathType` representing the project path.
+///
+/// Note: the former free function `generate_git_project_id` that used to live
+/// here has been removed -- it was a byte-for-byte duplicate of
+/// [`GitAuth::generate_id`]/[`crate::identity::generate_project_id`]. Callers
+/// should use `auth.generate_id()` (or `identity::generate_project_id` directly
+/// when they only have the raw `user`/`repo`/`branch` strings, not a `GitAuth`).
 #[cfg(target_os = "linux")]
 pub fn generate_git_project_path(auth: &GitAuth) -> PathType {
-    PathType::Content(format!("/var/www/ais/{}", generate_git_project_id(auth)))
-}
-
-/// Generates a unique project ID based on the Git authentication information.
-///
-/// # Arguments
-///
-/// * `auth` - A reference to `GitAuth` containing branch, repository, and user information.
-///
-/// # Returns
-///
-/// Returns a `Stringy` representing the truncated hash of the project ID.
-#[cfg(target_os = "linux")]
-pub fn generate_git_project_id(auth: &GitAuth) -> Stringy {
-    let hash_input = format!("{}-{}-{}", auth.branch, auth.repo, auth.user);
-    let hash = create_hash(hash_input);
-    let truncated_hash = truncate(&*hash, 8);
-    truncated_hash.into()
+    PathType::Content(format!("/var/www/ais/{}", auth.generate_id()))
 }
 
 impl fmt::Display for GitServer {

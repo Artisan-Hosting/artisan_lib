@@ -65,7 +65,7 @@ impl ProjectInfo {
 /// - The `status` field indicates whether the request succeeded (`"success"`) or encountered
 ///   an error (`"error"`).
 /// - The `data` field, if present, contains the primary payload (e.g., node details,
-///   a list of runners, etc.).
+///   a list of projects, etc.).
 /// - The `errors` field is an array of [`ErrorInfo`] objects that provide more context when
 ///   `status` is `"error"`.
 #[derive(Serialize, Deserialize, Debug)]
@@ -93,8 +93,8 @@ pub enum ErrorCode {
     /// Indicates that the requested node resource was not found on the server.
     NodeNotFound,
 
-    /// Indicates that the requested runner resource was not found on the server.
-    RunnerNotFound,
+    /// Indicates that the requested project resource was not found on the server.
+    ProjectNotFound,
 
     /// Occurs when authentication credentials are invalid (e.g., wrong token or password).
     InvalidCredentials,
@@ -154,8 +154,8 @@ pub struct NodeInfo {
     /// Uses a Rust `IpAddr` type to handle both IPv4 and IPv6.
     pub ip_address: std::net::IpAddr,
 
-    /// A list of runner identifiers hosted on this node.
-    pub runners: Vec<Stringy>,
+    /// A list of project identifiers hosted on this node.
+    pub projects: Vec<Stringy>,
 
     /// The Unix epoch timestamp (in seconds) when this node was first registered.
     pub created_at: Stringy,
@@ -180,7 +180,7 @@ impl NodeInfo {
 
 /// Provides detailed information about a node, typically returned by the "Get Node Details" endpoint.
 ///
-/// Includes the node’s identity, status, the runners it hosts, and additional manager-side data
+/// Includes the node’s identity, status, the projects it hosts, and additional manager-side data
 /// about the system version, uptime, etc.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NodeDetails {
@@ -190,8 +190,8 @@ pub struct NodeDetails {
     /// The node’s current health or operational state (e.g., `"healthy"`, `"degraded"`).
     pub status: Status,
 
-    /// A list of identifiers for the runners hosted on this node.
-    pub runners: Vec<Stringy>,
+    /// A list of identifiers for the projects hosted on this node.
+    pub projects: Vec<Stringy>,
 
     /// The Unix epoch timestamp (in seconds) when this node was first registered.
     pub created_at: Stringy,
@@ -281,34 +281,34 @@ pub struct NodeReloadResult {
 }
 
 // =============================================================================
-// Runner Data Structures
+// Project Data Structures
 // =============================================================================
 
-/// A minimal data structure containing summary information about a runner.
+/// A minimal data structure containing summary information about a project.
 ///
-/// This struct can be used for listing runners for quickly describing
+/// This struct can be used for listing projects for quickly describing
 /// them in aggregate form. It includes key properties such as `name`, `status`,
 /// version details, and an optional `uptime`. This is a combination of every instance
-/// of a given runner across all nodes, for more specific info about instance of a runner
-/// use ['RunnerDetails']
+/// of a given project across all nodes, for more specific info about an instance of a
+/// project use [`ProjectDetails`]
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RunnerSummary {
-    /// A short name or identifier for the runner.
+pub struct ProjectSummary {
+    /// A short name or identifier for the project.
     pub name: Stringy,
 
-    /// The current status of the runner (e.g., `"running"`, `"stopped"`, etc.).
+    /// The current status of the project (e.g., `"running"`, `"stopped"`, etc.).
     pub status: Status,
 
-    /// The runner’s software version details (e.g., a semantic version number
+    /// The project’s software version details (e.g., a semantic version number
     /// and a code like "Beta" or "Production").
     pub version: SoftwareVersion,
 
-    /// A list of node IDs (as `u64`) indicating where this runner is deployed.
-    /// Some runners may be replicated or load-balanced across multiple nodes.
+    /// A list of node IDs (as `u64`) indicating where this project is deployed.
+    /// Some projects may be replicated or load-balanced across multiple nodes.
     pub nodes: Vec<u64>,
 
-    /// The total number of seconds this runner has been active, if known.
-    /// When the runner is deployed on multiple nodes, this may be rounded
+    /// The total number of seconds this project has been active, if known.
+    /// When the project is deployed on multiple nodes, this may be rounded
     /// to the closest hundred based on the longest-running node.
     pub uptime: Option<u64>,
 
@@ -316,75 +316,75 @@ pub struct RunnerSummary {
     pub metrics: Option<Metrics>,
 }
 
-/// Provides detailed information about a single runner within the system.
+/// Provides detailed information about a single project within the system.
 ///
-/// Typically returned by the "Get Runner Details" endpoint, this struct contains
+/// Typically returned by the "Get Project Details" endpoint, this struct contains
 /// both fixed fields (like `id`, `status`, `version`) and flexible fields (`specific_config`)
-/// that allow for runner-specific customization or dynamic configuration.
+/// that allow for project-specific customization or dynamic configuration.
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RunnerDetails {
-    /// A unique identifier for the runner (e.g., "runner123").
+pub struct ProjectDetails {
+    /// A unique identifier for the project (e.g., "63c35f4b").
     ///
     /// `Stringy` is a custom type that may encapsulate additional validation or formatting
     /// rules beyond a basic string.
     pub id: Stringy,
 
-    /// Represents the current operating state of the runner (e.g., `"running"`, `"stopped"`, etc.).
+    /// Represents the current operating state of the project (e.g., `"running"`, `"stopped"`, etc.).
     ///
-    /// `Status` is a custom enumeration or type that captures all valid states a runner can have.
+    /// `Status` is a custom enumeration or type that captures all valid states a project can have.
     pub status: Status,
 
-    /// Indicates the software version in use by this runner.
+    /// Indicates the software version in use by this project.
     ///
     /// `SoftwareVersion` may include fields such as the main version number, a release code,
     /// and possibly other metadata about the software being run.
     pub version: SoftwareVersion,
 
-    /// Stores high-level, Artisan-specific configuration for this runner.
+    /// Stores high-level, Artisan-specific configuration for this project.
     ///
     /// `AppConfig` often encompasses standardized settings across multiple services,
-    /// ensuring consistency in how runners are deployed and managed.
+    /// ensuring consistency in how projects are deployed and managed.
     pub artisan_config: AppConfig,
 
-    /// A optional JSON object containing runner-specific configuration options.
+    /// A optional JSON object containing project-specific configuration options.
     ///
-    /// Because each runner might require unique settings, `specific_config` is kept as raw
+    /// Because each project might require unique settings, `specific_config` is kept as raw
     /// JSON rather than a strongly-typed Rust struct. You can parse or transform it after
     /// deserialization if your application needs more granular control over these settings.
     pub specific_config: Option<serde_json::Value>,
 
-    /// Holds environment-specific configuration for this runner, if available.
+    /// Holds environment-specific configuration for this project, if available.
     ///
     /// [`Enviornment`] is an enum that can represent multiple versions of environment data
-    /// e.g., [`Enviornment_V1`] or [`Enviornment_V2`]. If absent (`None`), the runner may either not rely on
+    /// e.g., [`Enviornment_V1`] or [`Enviornment_V2`]. If absent (`None`), the project may either not rely on
     /// environment settings or be using defaults.
     pub enviornment: Option<Enviornment>,
 
-    /// Optional health metrics and status for the runner, such as uptime or last check time.
+    /// Optional health metrics and status for the project, such as uptime or last check time.
     ///
-    /// If `None`, health information may not be collected or may not be relevant for this runner.
+    /// If `None`, health information may not be collected or may not be relevant for this project.
     /// The `#[serde(default)]` annotation makes sure missing fields in JSON won't cause errors.
     #[serde(default)]
-    pub health: Option<RunnerHealth>,
+    pub health: Option<ProjectHealth>,
 
-    /// A collection of recent log entries or references to logs for this runner, if available.
+    /// A collection of recent log entries or references to logs for this project, if available.
     ///
-    /// Typically used to quickly inspect the runner's recent activity without making additional
+    /// Typically used to quickly inspect the project's recent activity without making additional
     /// log-fetching requests. If `None`, logs may not be tracked or have not been retrieved yet.
     /// The `#[serde(default)]` annotation ensures missing fields in JSON are treated as `None`.
     #[serde(default)]
-    pub logs: Option<RunnerLogs>,
+    pub logs: Option<ProjectLogs>,
 }
 
-/// Stores basic health metrics and status for a runner (e.g., uptime or last check time).
+/// Stores basic health metrics and status for a project (e.g., uptime or last check time).
 ///
 /// This structure can be omitted if health metrics are unavailable or not yet implemented.
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RunnerHealth {
-    /// The total number of seconds since the runner was started.
+pub struct ProjectHealth {
+    /// The total number of seconds since the project was started.
     pub uptime: u64,
 
-    /// The timestamp (formatted as a string) when the runner last passed a health check.
+    /// The timestamp (formatted as a string) when the project last passed a health check.
     pub last_check: u64,
 
     /// Cpu usage
@@ -400,12 +400,12 @@ pub struct RunnerHealth {
     pub rx_bytes: u64,
 }
 
-/// Collects recent log entries for a runner, along with optional metadata about log storage.
+/// Collects recent log entries for a project, along with optional metadata about log storage.
 ///
 /// This can include an array of `[LogEntry]` objects and potentially a `log_endpoint` for
 /// retrieving more detailed or historical logs.
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RunnerLogs {
+pub struct ProjectLogs {
     /// A list of recent log messages, including timestamps and textual data.
     pub recent: Vec<LogEntry>,
     // TODO Implement a log endpoint system for each instance, oneday
@@ -424,17 +424,17 @@ pub struct NetworkStats {
 // Command Structures (Send / Check Status of Commands)
 // =============================================================================
 
-/// Represents a request body for issuing a command to a runner.
+/// Represents a request body for issuing a command to a project.
 ///
 /// Common commands include:
-/// - `"start-runner"`  
-/// - `"stop-runner"`  
-/// - `"restart-runner"`  
+/// - `"start-project"`
+/// - `"stop-project"`
+/// - `"restart-project"`
 ///
 /// The `params` field enables additional parameters to be passed for more sophisticated commands.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CommandRequest {
-    /// The command to be executed, as a string (e.g., "start-runner").
+    /// The command to be executed, as a string (e.g., "start-project").
     pub command: String,
 
     /// A JSON object holding any additional parameters needed by the command.
@@ -443,15 +443,15 @@ pub struct CommandRequest {
     pub params: serde_json::Value,
 }
 
-/// The server’s response after accepting a command for a runner.
+/// The server’s response after accepting a command for a project.
 ///
 /// Often returned immediately after posting a command to the server. Includes details such as
-/// the runner ID, the command issued, and an initial status (e.g., `"in-progress"`).
+/// the project ID, the command issued, and an initial status (e.g., `"in-progress"`).
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CommandResponse {
-    /// The ID of the runner this command was sent to.
-    #[serde(rename = "runnerId")]
-    pub runner_id: String,
+    /// The ID of the project this command was sent to.
+    #[serde(rename = "projectId")]
+    pub project_id: String,
 
     /// A unique identifier for the command, useful for checking status later.
     #[serde(rename = "commandId")]
@@ -475,9 +475,9 @@ pub struct CommandResponse {
 /// including start/finish times and any output messages.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CommandStatusResponse {
-    /// The ID of the runner this command was sent to.
-    #[serde(rename = "runnerId")]
-    pub runner_id: String,
+    /// The ID of the project this command was sent to.
+    #[serde(rename = "projectId")]
+    pub project_id: String,
 
     /// A unique identifier for the command, matching the value in [`CommandResponse`].
     #[serde(rename = "commandId")]
@@ -506,7 +506,7 @@ pub struct CommandStatusResponse {
 // Logs / Monitoring
 // =============================================================================
 
-/// Represents a single log entry (for nodes or runners),
+/// Represents a single log entry (for nodes or projects),
 /// containing a timestamp and a message describing an event.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LogEntry {
@@ -530,25 +530,25 @@ pub struct NodeLogs {
     pub logs: Vec<LogEntry>,
 }
 
-/// The response payload for an endpoint returning runner-level logs.
+/// The response payload for an endpoint returning project-level logs.
 ///
-/// This includes the runner ID for context, plus a collection of [`LogEntry`] objects.
+/// This includes the project ID for context, plus a collection of [`LogEntry`] objects.
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RunnerLogResponse {
-    /// The ID of the runner these logs pertain to.
-    // #[serde(rename = "runnerId")]
-    pub runner_id: String,
+pub struct ProjectLogResponse {
+    /// The ID of the project these logs pertain to.
+    // #[serde(rename = "projectId")]
+    pub project_id: String,
 
-    /// A list of log entries recorded by this runner.
+    /// A list of log entries recorded by this project.
     pub logs: Vec<LogEntry>,
 }
 
 /// The response payload for an endpoint returning instance-level logs.
 ///
-/// This includes the runner ID for context, plus a collection of [`LogEntry`] objects.
+/// This includes the project ID for context, plus a collection of [`LogEntry`] objects.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct InstanceLogResponse {
-    pub runner_id: String,
+    pub project_id: String,
     pub instance_id: String,
     pub lines: Vec<LogEntry>,
 }

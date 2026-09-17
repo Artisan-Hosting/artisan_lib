@@ -56,10 +56,10 @@ pub struct PasswdClaims {
 /// JWT Claims structure.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,    // User ID
-    pub role: Role,     // User role
-    pub org_id: String, // Organization id
-    pub exp: u64,       // Expiration timestamp
+    pub sub: String,             // User ID
+    pub role: Role,              // User role
+    pub organization_id: String, // Organization id (UUID)
+    pub exp: u64,                // Expiration timestamp
     pub kind: TokenType,
 }
 
@@ -68,7 +68,7 @@ impl Claims {
     pub fn to_map(&self) -> HashMap<String, String> {
         let mut map = HashMap::new();
         map.insert("sub".into(), self.sub.clone());
-        map.insert("org_id".into(), self.org_id.clone());
+        map.insert("organization_id".into(), self.organization_id.clone());
         map.insert("role".into(), self.role.to_str().to_owned());
         map.insert("exp".into(), self.exp.to_string());
         map.insert("type".into(), self.kind.to_string());
@@ -80,9 +80,9 @@ impl Claims {
         let sub = map
             .remove("sub")
             .ok_or_else(|| "Missing `sub` in claims map".to_string())?;
-        let org_id = map
-            .remove("org_id")
-            .ok_or_else(|| "Missing `org_id` in claims map".to_string())?;
+        let organization_id = map
+            .remove("organization_id")
+            .ok_or_else(|| "Missing `organization_id` in claims map".to_string())?;
         let role_str = map
             .remove("role")
             .ok_or_else(|| "Missing `role` in claims map".to_string())?;
@@ -106,7 +106,7 @@ impl Claims {
 
         Ok(Claims {
             sub,
-            org_id,
+            organization_id,
             role,
             exp,
             kind,

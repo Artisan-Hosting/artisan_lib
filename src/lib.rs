@@ -30,6 +30,7 @@ pub mod state_persistence;
 #[cfg(target_os = "linux")]
 pub mod systemd;
 pub mod timestamp;
+pub mod urn;
 #[cfg(target_os = "linux")]
 pub mod users;
 pub mod version;
@@ -67,3 +68,9 @@ mod network_test;
 
 #[path = "../src/tests/enviornment.rs"]
 mod enviornment_test;
+
+#[path = "../src/tests/urn.rs"]
+mod urn_test;
+
+#[path = "../src/tests/taxonomy_ids.rs"]
+mod taxonomy_ids_test;

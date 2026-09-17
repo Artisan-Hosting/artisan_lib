@@ -26,8 +26,8 @@ impl UsageLedger {
         }
     }
 
-    pub fn update_application_usage(&mut self, app_id: Stringy, current: Metrics) {
-        let entry = self.applications.entry(app_id).or_insert(HistoricalUsage {
+    pub fn update_application_usage(&mut self, project_id: Stringy, current: Metrics) {
+        let entry = self.applications.entry(project_id).or_insert(HistoricalUsage {
             total_cpu_time: 0.0,
             total_memory_bytes: 0,
             total_net_rx: 0,

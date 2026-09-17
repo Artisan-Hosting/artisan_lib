@@ -390,3 +390,331 @@ impl Identifier {
         log!(LogLevel::Debug, "SIG: {}", self._signature);
     }
 }
+
+// =============================================================================
+// Resource Taxonomy — canonical ID newtypes
+//
+// See `RESOURCE_TAXONOMY.md` at the repository root for the normative spec.
+// These types exist so that "which flavor of identifier is this" is answered
+// by the type system instead of by a field name convention that different
+// services have historically spelled differently (`runner_id`/`app_id`/
+// `project_id`, `org_id`/`organization_id`, etc.).
+// =============================================================================
+
+use std::fmt;
+
+/// The prefix applied to a project's `project_id` when it is used as a
+/// systemd/process name (e.g. `ais_63c35f4b`). This is a process-naming
+/// convention, not part of a resource's identity -- never derive a
+/// `project_id` from a process name (or vice versa) with ad hoc string
+/// surgery like `.replace("ais_", "")`; that is not prefix-anchored and
+/// corrupts any identifier that happens to contain the substring `ais_`
+/// anywhere other than as a leading prefix. Use [`ais_name`] / [`strip_ais_prefix`].
+pub const AIS_PREFIX: &str = "ais_";
+
+/// Builds a process/systemd name from a bare component name.
+///
+/// Invertible via [`strip_ais_prefix`]: `strip_ais_prefix(&ais_name(x)) == Some(x)`
+/// for every `x`.
+pub fn ais_name(component: &str) -> String {
+    format!("{AIS_PREFIX}{component}")
+}
+
+/// The inverse of [`ais_name`]. Returns `None` if `name` does not start with
+/// [`AIS_PREFIX`] -- unlike `name.replace("ais_", "")`, this never mangles a
+/// name that merely *contains* `ais_` somewhere other than as a prefix.
+pub fn strip_ais_prefix(name: &str) -> Option<&str> {
+    name.strip_prefix(AIS_PREFIX)
+}
+
+/// Error returned when a string does not have the expected shape for a
+/// particular ID type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdParseError {
+    pub expected: &'static str,
+    pub got: String,
+}
+
+impl fmt::Display for IdParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "expected {}, got {:?}", self.expected, self.got)
+    }
+}
+
+impl std::error::Error for IdParseError {}
+
+fn is_lowercase_hex(s: &str, len: usize) -> bool {
+    s.len() == len && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+}
+
+/// Identifies a Project: the deployable unit a customer thinks of as "my app".
+/// Backed by an 8-character lowercase-hex string, unchanged from the
+/// pre-existing `sha256("{branch}-{repo}-{user}")[0..8]` algorithm -- see
+/// [`generate_project_id`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProjectId(String);
+
+impl ProjectId {
+    /// Validates and wraps an existing 8-hex-character project id.
+    pub fn parse(s: &str) -> Result<Self, IdParseError> {
+        if is_lowercase_hex(s, 8) {
+            Ok(Self(s.to_owned()))
+        } else {
+            Err(IdParseError {
+                expected: "8 lowercase hex characters",
+                got: s.to_owned(),
+            })
+        }
+    }
+
+    /// Computes the canonical project id from its git identity: `user`, `repo`,
+    /// `branch`. This is the SAME algorithm as the pre-existing
+    /// `GitAuth::generate_id`/`generate_git_project_id` (now removed in favor
+    /// of this single implementation) -- idempotent, deterministic,
+    /// collision-resistant (32 bits), URL-safe.
+    pub fn from_parts(user: &str, repo: &str, branch: &str) -> Self {
+        let hash_input = format!("{branch}-{repo}-{user}");
+        let hash = dusa_collection_utils::platform::functions::create_hash(hash_input);
+        let truncated = dusa_collection_utils::platform::functions::truncate(&*hash, 8);
+        Self(truncated.to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The systemd/process name for this project (`ais_<project_id>`).
+    pub fn ais_name(&self) -> String {
+        ais_name(&self.0)
+    }
+}
+
+impl fmt::Display for ProjectId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl AsRef<str> for ProjectId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<ProjectId> for String {
+    fn from(id: ProjectId) -> Self {
+        id.0
+    }
+}
+
+/// Computes the canonical project id from a [`crate::git_actions::GitAuth`].
+/// The single canonical replacement for the two prior duplicate
+/// implementations (`GitAuth::generate_id`, the free function
+/// `generate_git_project_id`).
+pub fn generate_project_id(user: &str, repo: &str, branch: &str) -> ProjectId {
+    ProjectId::from_parts(user, repo, branch)
+}
+
+/// A UUID-backed identifier. Used for [`OrganizationId`], [`InstanceId`], and
+/// [`SessionId`] -- resources created without a central coordinator handing
+/// out sequential IDs.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UuidId(String);
+
+impl UuidId {
+    pub fn new_v4() -> Self {
+        Self(uuid::Uuid::new_v4().to_string())
+    }
+
+    pub fn parse(s: &str) -> Result<Self, IdParseError> {
+        uuid::Uuid::parse_str(s)
+            .map(|u| Self(u.to_string()))
+            .map_err(|_| IdParseError {
+                expected: "a UUID",
+                got: s.to_owned(),
+            })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for UuidId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+macro_rules! uuid_id_newtype {
+    ($name:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(transparent)]
+        pub struct $name(UuidId);
+
+        impl $name {
+            pub fn new_v4() -> Self {
+                Self(UuidId::new_v4())
+            }
+
+            pub fn parse(s: &str) -> Result<Self, IdParseError> {
+                UuidId::parse(s).map(Self)
+            }
+
+            pub fn as_str(&self) -> &str {
+                self.0.as_str()
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+    };
+}
+
+uuid_id_newtype!(
+    OrganizationId,
+    "Identifies an Organization -- the tenancy boundary that owns every other resource."
+);
+uuid_id_newtype!(
+    InstanceId,
+    "Identifies one running copy of a Project on one Node."
+);
+uuid_id_newtype!(SessionId, "Identifies a Runpod GPU compute session.");
+
+/// A `u64`-backed identifier that MUST be encoded as a decimal string on
+/// HTTP/JSON boundaries (to avoid JavaScript's float-precision loss above
+/// 2^53), while remaining a plain `u64` in Rust and `uint64` in proto. Used
+/// for [`NodeId`], [`DomainId`], and [`VmId`].
+macro_rules! wire_string_u64_id {
+    ($name:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(pub u64);
+
+        impl $name {
+            pub fn get(&self) -> u64 {
+                self.0
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        impl From<u64> for $name {
+            fn from(v: u64) -> Self {
+                Self(v)
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_str(&self.0.to_string())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct WireVisitor;
+                impl<'de> serde::de::Visitor<'de> for WireVisitor {
+                    type Value = u64;
+
+                    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                        write!(f, "a u64 or a decimal string")
+                    }
+
+                    fn visit_u64<E>(self, v: u64) -> Result<u64, E> {
+                        Ok(v)
+                    }
+
+                    fn visit_i64<E>(self, v: i64) -> Result<u64, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        u64::try_from(v).map_err(|_| E::custom("negative value for u64 id"))
+                    }
+
+                    fn visit_str<E>(self, v: &str) -> Result<u64, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        v.parse::<u64>().map_err(E::custom)
+                    }
+                }
+                deserializer.deserialize_any(WireVisitor).map($name)
+            }
+        }
+    };
+}
+
+wire_string_u64_id!(NodeId, "Identifies a compute Node.");
+wire_string_u64_id!(DomainId, "Identifies a Domain.");
+wire_string_u64_id!(VmId, "Identifies a Proxmox-managed Vm.");
+
+impl From<Identifier> for NodeId {
+    fn from(identifier: Identifier) -> Self {
+        NodeId(identifier.id)
+    }
+}
+
+/// Identifies a named deployment scope (`prod`, `staging`, `dev`, ...) under a Project.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EnvironmentId(String);
+
+impl EnvironmentId {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for EnvironmentId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<String> for EnvironmentId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for EnvironmentId {
+    fn from(s: &str) -> Self {
+        Self(s.to_owned())
+    }
+}
+
+/// A Secret's composite identity: scoped to a Project and an Environment.
+/// Deliberately not a bare scalar -- do not invent a synthetic `secret_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SecretRef {
+    pub project_id: ProjectId,
+    pub environment_id: EnvironmentId,
+    pub key: String,
+}
+
+impl fmt::Display for SecretRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}/{}", self.project_id, self.environment_id, self.key)
+    }
+}

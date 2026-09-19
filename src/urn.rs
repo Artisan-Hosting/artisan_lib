@@ -7,9 +7,12 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// The resource types a [`Urn`] can name. Deliberately excludes `Runner` and
 /// `Repo` -- see `RESOURCE_TAXONOMY.md` §3.2/§3.10 for why.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ResourceType {
     Organization,
     User,
@@ -25,7 +28,7 @@ pub enum ResourceType {
 }
 
 impl ResourceType {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             ResourceType::Organization => "organization",
             ResourceType::User => "user",
@@ -41,7 +44,7 @@ impl ResourceType {
         }
     }
 
-    fn from_str(s: &str) -> Option<Self> {
+    pub fn from_str(s: &str) -> Option<Self> {
         Some(match s {
             "organization" => ResourceType::Organization,
             "user" => ResourceType::User,
@@ -56,6 +59,39 @@ impl ResourceType {
             "invite" => ResourceType::Invite,
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod resource_type_tests {
+    use super::ResourceType;
+
+    #[test]
+    fn every_resource_type_round_trips_through_as_str_and_from_str() {
+        for resource_type in [
+            ResourceType::Organization,
+            ResourceType::User,
+            ResourceType::Node,
+            ResourceType::Project,
+            ResourceType::Instance,
+            ResourceType::Domain,
+            ResourceType::Secret,
+            ResourceType::Environment,
+            ResourceType::Session,
+            ResourceType::Vm,
+            ResourceType::Invite,
+        ] {
+            assert_eq!(
+                ResourceType::from_str(resource_type.as_str()),
+                Some(resource_type)
+            );
+        }
+    }
+
+    #[test]
+    fn from_str_rejects_an_unrecognized_resource_type() {
+        assert_eq!(ResourceType::from_str("runner"), None); // retired name -- see RESOURCE_TAXONOMY.md
+        assert_eq!(ResourceType::from_str(""), None);
     }
 }
 

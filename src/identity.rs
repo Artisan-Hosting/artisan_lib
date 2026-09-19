@@ -718,3 +718,69 @@ impl fmt::Display for SecretRef {
         write!(f, "{}/{}/{}", self.project_id, self.environment_id, self.key)
     }
 }
+
+pub use crate::urn::ResourceType;
+
+/// An action an [`crate::api::roles::Role`] can be permitted to perform on a
+/// resource, evaluated by the RBAC policy engine (`ais_auth::auth::permissions`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Action {
+    Read,
+    Write,
+    Control,
+    Delete,
+    Grant,
+    Purchase,
+}
+
+impl Action {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Action::Read => "read",
+            Action::Write => "write",
+            Action::Control => "control",
+            Action::Delete => "delete",
+            Action::Grant => "grant",
+            Action::Purchase => "purchase",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "read" => Action::Read,
+            "write" => Action::Write,
+            "control" => Action::Control,
+            "delete" => Action::Delete,
+            "grant" => Action::Grant,
+            "purchase" => Action::Purchase,
+            _ => return None,
+        })
+    }
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::Action;
+
+    #[test]
+    fn every_action_round_trips_through_as_str_and_from_str() {
+        for action in [
+            Action::Read,
+            Action::Write,
+            Action::Control,
+            Action::Delete,
+            Action::Grant,
+            Action::Purchase,
+        ] {
+            assert_eq!(Action::from_str(action.as_str()), Some(action));
+        }
+    }
+
+    #[test]
+    fn from_str_rejects_an_unrecognized_action() {
+        assert_eq!(Action::from_str("execute"), None);
+        assert_eq!(Action::from_str(""), None);
+        assert_eq!(Action::from_str("READ"), None); // case-sensitive on purpose -- the wire form is always lowercase
+    }
+}

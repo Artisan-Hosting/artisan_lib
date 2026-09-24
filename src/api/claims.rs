@@ -15,6 +15,14 @@ pub enum TokenType {
     /// alone is not enough for those. Not meant to replace a normal `Auth`
     /// token for anything else; a caller still needs both.
     Elevated,
+    /// Short-TTL token a GLOBAL-org platform-infra service (Manager,
+    /// watchdog, gitmon) mints for itself by presenting its mTLS client
+    /// certificate to `ais_auth`'s `RequestServiceSession`, instead of
+    /// holding a long-lived raw secret on disk. Unlike every other token
+    /// type here, validating one also re-checks live revocation on the
+    /// underlying `service_credentials` row (see `ais_auth`'s
+    /// `validate_service_session_token`) rather than signature+expiry alone.
+    ServiceSession,
     None,
 }
 
@@ -26,6 +34,7 @@ impl TokenType {
             TokenType::Refresh => "refresh",
             TokenType::Password => "password",
             TokenType::Elevated => "elevated",
+            TokenType::ServiceSession => "service_session",
             TokenType::None => "",
         }
     }
@@ -41,6 +50,7 @@ impl TokenType {
             "refresh" => Self::Refresh,
             "password" => Self::Password,
             "elevated" => Self::Elevated,
+            "service_session" => Self::ServiceSession,
             _ => Self::None,
         }
     }

@@ -25,6 +25,13 @@ pub enum ResourceType {
     Session,
     Vm,
     Invite,
+    /// A billing subscription (a plan bound to an organization for one
+    /// storefront -- Developer/Business/Email/Apostle-standalone each get
+    /// their own row; see `Platform/Billing`'s `subscriptions` table). Named
+    /// for the resource being acted on, matching this enum's existing
+    /// convention (`Domain`, not `DomainOrder`) -- not `Billing`, which would
+    /// name the owning service rather than the resource.
+    Subscription,
 }
 
 impl ResourceType {
@@ -41,6 +48,7 @@ impl ResourceType {
             ResourceType::Session => "session",
             ResourceType::Vm => "vm",
             ResourceType::Invite => "invite",
+            ResourceType::Subscription => "subscription",
         }
     }
 
@@ -57,6 +65,7 @@ impl ResourceType {
             "session" => ResourceType::Session,
             "vm" => ResourceType::Vm,
             "invite" => ResourceType::Invite,
+            "subscription" => ResourceType::Subscription,
             _ => return None,
         })
     }
@@ -80,6 +89,7 @@ mod resource_type_tests {
             ResourceType::Session,
             ResourceType::Vm,
             ResourceType::Invite,
+            ResourceType::Subscription,
         ] {
             assert_eq!(
                 ResourceType::from_str(resource_type.as_str()),

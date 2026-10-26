@@ -306,6 +306,20 @@ pub struct LiveMetrics {
     pub tx_bytes: u64,
 }
 
+/// Legacy on-disk `UsageRecord` shape: `total_cpu` is a raw sum of `cpu_usage` percent
+/// readings with no stable unit (the bug [`USAGE_RECORD_SCHEMA_CURRENT`] fixes). Any
+/// `UsageRecord` read back without a `schema_version` field (i.e. written before this fix)
+/// defaults to this version via `serde(default)`.
+pub const USAGE_RECORD_SCHEMA_V1: u8 = 1;
+
+/// Current on-disk `UsageRecord` shape: `total_cpu` is genuine core-seconds, accrued by
+/// weighting each percent sample by elapsed wall-clock time (see [`update_metrics`]).
+pub const USAGE_RECORD_SCHEMA_CURRENT: u8 = 2;
+
+fn default_usage_record_schema_version() -> u8 {
+    USAGE_RECORD_SCHEMA_V1
+}
+
 /// A single aggregated usage record.
 ///
 /// This structure is persisted to disk at regular intervals, containing
@@ -313,15 +327,21 @@ pub struct LiveMetrics {
 ///
 /// ### Fields:
 /// - `timestamp_epoch`: The UNIX timestamp at which the aggregation occurred.
-/// - `total_*`: Cumulative totals over the aggregation period.
-/// - `peak_*`: Highest observed value during the period.
+/// - `schema_version`: See [`USAGE_RECORD_SCHEMA_V1`] / [`USAGE_RECORD_SCHEMA_CURRENT`].
+///   Missing on disk (pre-fix files) is interpreted as `USAGE_RECORD_SCHEMA_V1`.
+/// - `total_cpu`: Core-seconds at `USAGE_RECORD_SCHEMA_CURRENT`; a unitless raw percent-sum
+///   at `USAGE_RECORD_SCHEMA_V1` — see [`summarize_usage`] for how the two are reconciled.
+/// - `total_*`/`peak_*` (other fields): Cumulative/peak values over the aggregation period,
+///   unaffected by this schema version.
 /// - `sample_count`: Number of metric samples aggregated.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageRecord {
     pub timestamp_epoch: i64,
+    #[serde(default = "default_usage_record_schema_version")]
+    pub schema_version: u8,
     pub project_id: Stringy,
     pub instance_id: Stringy,
-    pub total_cpu: f32,
+    pub total_cpu: f64,
     pub peak_cpu: f32,
     pub total_memory: f64,
     pub peak_memory: f64,
@@ -364,9 +384,17 @@ impl fmt::Display for BillingCosts {
 /// Accumulator that aggregates usage statistics over a time window.
 ///
 /// This is stored in memory and updated every time a new `LiveMetrics` is received.
+///
+/// ### CPU accounting
+/// `total_cpu_core_seconds` is genuine core-seconds, accrued by weighting each
+/// `cpu_usage` percent reading by the wall-clock time elapsed since the previous
+/// sample for this instance (see [`update_metrics`]). It is **not** a running sum
+/// of raw percent readings — summing percentages has no stable unit and cannot be
+/// converted to core-hours after the fact without knowing the sampling interval,
+/// which is why the interval is captured live via `last_sample_epoch_ms` instead.
 #[derive(Clone, Debug, Default)]
 pub struct UsageAccumulator {
-    pub total_cpu: f32,
+    pub total_cpu_core_seconds: f64,
     pub peak_cpu: f32,
     pub total_memory: f64,
     pub peak_memory: f64,
@@ -375,6 +403,11 @@ pub struct UsageAccumulator {
     pub last_rx: u64,
     pub last_tx: u64,
     pub has_network_baseline: bool,
+    /// Epoch-millis timestamp of the last sample folded into this accumulator, used to
+    /// weight the next sample's CPU-percent reading by elapsed wall-clock time. `None`
+    /// until the first sample arrives, at which point it seeds the baseline with no accrual
+    /// (mirrors the network-baseline-seeding behavior below).
+    pub last_sample_epoch_ms: Option<i64>,
     pub sample_count: u64,
 }
 
@@ -382,7 +415,12 @@ pub struct UsageAccumulator {
 pub struct BilledUsageSummary {
     pub project_id: Stringy,
     pub instance_id: Stringy,
-    pub total_cpu: f32,
+    /// Genuine core-hours (see [`UsageAccumulator::total_cpu_core_seconds`]), summed only
+    /// from [`UsageRecord`]s at [`USAGE_RECORD_SCHEMA_CURRENT`] or later. Legacy records
+    /// (`schema_version` 1, whose `total_cpu` was a raw sum of percent readings with no
+    /// stable unit) are excluded from this total rather than silently mixed in — see
+    /// [`summarize_usage`].
+    pub total_cpu: f64,
     pub peak_cpu: f32,
     pub avg_memory: f64,
     pub peak_memory: f64,
@@ -422,7 +460,8 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
         return None;
     }
 
-    let mut total_cpu_points: f32 = 0.0;
+    let mut total_core_seconds: f64 = 0.0;
+    let mut legacy_records_excluded: u64 = 0;
     let mut peak_cpu: f32 = 0.0;
     let mut total_memory_sum: f64 = 0.0;
     let mut peak_memory: f64 = 0.0;
@@ -438,7 +477,14 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
     let mut instance_seen: HashSet<Stringy> = HashSet::new();
 
     for r in records {
-        total_cpu_points += r.total_cpu;
+        // Legacy (pre-fix) records stored a raw sum of percent readings with no stable
+        // unit — it cannot be converted to core-seconds after the fact, so it is excluded
+        // from the CPU total rather than silently mixed in with correctly-unitted records.
+        if r.schema_version >= USAGE_RECORD_SCHEMA_CURRENT {
+            total_core_seconds += r.total_cpu;
+        } else {
+            legacy_records_excluded += 1;
+        }
         peak_cpu = peak_cpu.max(r.peak_cpu);
 
         total_memory_sum += r.total_memory;
@@ -456,6 +502,16 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
         }
     }
 
+    if legacy_records_excluded > 0 {
+        log!(
+            LogLevel::Warn,
+            "Excluded {} pre-fix UsageRecord(s) from the CPU total for {}:{} (legacy schema_version has no convertible CPU unit)",
+            legacy_records_excluded,
+            project_id,
+            instance_id
+        );
+    }
+
     let avg_memory = if total_sample_count > 0 {
         total_memory_sum / total_sample_count as f64
     } else {
@@ -465,13 +521,13 @@ pub fn summarize_usage(records: &[UsageRecord]) -> Option<BilledUsageSummary> {
     let total_rx = max_rx.saturating_sub(min_rx);
     let total_tx = max_tx.saturating_sub(min_tx);
 
-    // Convert CPU% points → core-seconds → core-hours
-    let total_core_hours = total_cpu_points;
+    // Core-seconds → core-hours.
+    let total_core_hours = total_core_seconds / 3600.0;
 
     Some(BilledUsageSummary {
         project_id,
         instance_id,
-        total_cpu: total_core_hours, // << total_cpu is now "core-hours"
+        total_cpu: total_core_hours,
         peak_cpu,
         avg_memory,
         peak_memory,
@@ -504,16 +560,34 @@ pub struct AppContext {
 /// reports its current resource usage.
 ///
 /// It handles delta calculations for network traffic and peak tracking
-/// for CPU and memory.
+/// for CPU and memory, and weights the CPU-percent reading by the wall-clock
+/// time elapsed since the previous sample for this instance to accrue genuine
+/// core-seconds (see [`UsageAccumulator::total_cpu_core_seconds`]).
+///
+/// `now_epoch_ms` is taken as an explicit parameter (rather than read internally via
+/// `Utc::now()`) so the time-weighted accrual is unit-testable without sleeping in tests;
+/// production call sites pass `Utc::now().timestamp_millis()`.
 ///
 /// Returns an error if the lock on the usage map could not be acquired.
-pub async fn update_metrics(live: LiveMetrics, usage_map: &UsageMap) -> Result<(), ErrorArrayItem> {
+pub async fn update_metrics(
+    live: LiveMetrics,
+    usage_map: &UsageMap,
+    now_epoch_ms: i64,
+) -> Result<(), ErrorArrayItem> {
     let mut map = usage_map.try_write().await?;
     let key = (live.project_id.clone(), live.instance_id.clone());
     let entry = map.entry(key).or_default();
 
-    // CPU & RAM
-    entry.total_cpu += live.cpu_usage;
+    // CPU: weight this percent reading by elapsed wall-clock time since the last sample.
+    // The first sample for an accumulator seeds the baseline with no accrual, mirroring the
+    // network-baseline-seeding behavior below.
+    if let Some(last_epoch_ms) = entry.last_sample_epoch_ms {
+        let elapsed_secs = (now_epoch_ms - last_epoch_ms).max(0) as f64 / 1000.0;
+        entry.total_cpu_core_seconds += (live.cpu_usage as f64 / 100.0) * elapsed_secs;
+    }
+    entry.last_sample_epoch_ms = Some(now_epoch_ms);
+
+    // RAM
     entry.total_memory += live.memory_mb;
     entry.peak_cpu = entry.peak_cpu.max(live.cpu_usage);
     entry.peak_memory = entry.peak_memory.max(live.memory_mb);
@@ -587,9 +661,10 @@ pub async fn spawn_flush_task(usage_map: UsageMap, output_dir: PathType) {
             for ((project_id, instance_id), acc) in map.drain() {
                 let record = UsageRecord {
                     timestamp_epoch: epoch,
+                    schema_version: USAGE_RECORD_SCHEMA_CURRENT,
                     project_id,
                     instance_id,
-                    total_cpu: acc.total_cpu,
+                    total_cpu: acc.total_cpu_core_seconds,
                     peak_cpu: acc.peak_cpu,
                     total_memory: acc.total_memory,
                     peak_memory: acc.peak_memory,
@@ -638,9 +713,10 @@ pub async fn flush_metrics_to_disk(
     for ((project_id, instance_id), acc) in map.drain() {
         let record = UsageRecord {
             timestamp_epoch: epoch,
+            schema_version: USAGE_RECORD_SCHEMA_CURRENT,
             project_id,
             instance_id,
-            total_cpu: acc.total_cpu,
+            total_cpu: acc.total_cpu_core_seconds,
             peak_cpu: acc.peak_cpu,
             total_memory: acc.total_memory,
             peak_memory: acc.peak_memory,
@@ -992,7 +1068,8 @@ pub async fn initialize_app_context(
     let usage_map_clone = usage_map.clone();
     tokio::spawn(async move {
         while let Ok(metric) = metrics_rx.recv().await {
-            if let Err(err) = update_metrics(metric, &usage_map_clone).await {
+            let now_epoch_ms = Utc::now().timestamp_millis();
+            if let Err(err) = update_metrics(metric, &usage_map_clone, now_epoch_ms).await {
                 log!(
                     LogLevel::Warn,
                     "Error monitoring usage data: {}",
